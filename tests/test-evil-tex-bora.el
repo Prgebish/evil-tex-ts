@@ -585,6 +585,33 @@ backslash before \\end should NOT be deleted."
       (should (= (current-column) 4))
       (should (looking-at-p "\\\\end{align\\*}")))))
 
+(ert-deftest test-user-issue-dae-preserves-next-line-indent ()
+  "Regression: `dae` should not add extra indentation to the next line.
+When deleting an indented environment, the leading whitespace before
+\\begin should also be deleted so the next line keeps its original indent."
+  (evil-tex-bora-test-with-latex
+      "    We proved the statement by induction.\n    \\begin{align*}\n      x > 0\n      y < 0\n    \\end{align*}\n    BBB\n" 70
+    (let* ((bounds (evil-tex-bora--bounds-of-environment))
+           (outer-beg (nth 0 bounds))
+           (outer-end (nth 1 bounds)))
+      ;; outer-beg should start at the beginning of the line (include indent)
+      (should (= outer-beg 43))  ; position after first line's newline
+      ;; Simulate 'dae' operation
+      (delete-region outer-beg outer-end)
+      ;; BBB should keep its original indentation (4 spaces, not 8)
+      (should (string= (buffer-string)
+                       "    We proved the statement by induction.\n    BBB\n")))))
+
+(ert-deftest test-user-issue-dae-returns-linewise-type ()
+  "Regression: `dae` should return linewise type for whole-line environments.
+This ensures cursor lands on first non-whitespace char after deletion."
+  (evil-tex-bora-test-with-latex
+      "    We proved the statement by induction.\n    \\begin{align*}\n      x > 0\n    \\end{align*}\n    BBB\n" 70
+    (let* ((range (evil-tex-bora-outer-environment 1))
+           (range-type (nth 2 range)))
+      ;; Should return 'line type for linewise deletion behavior
+      (should (eq range-type 'line)))))
+
 (ert-deftest test-user-issue-cie-uses-linewise-inner-range ()
   "Regression: `cie` should use a linewise inner range for multi-line environments."
   (evil-tex-bora-test-with-latex

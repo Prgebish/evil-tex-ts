@@ -123,6 +123,13 @@ When `evil-tex-bora-select-newlines-with-envs' is non-nil:
            (inner-end (if end-node (treesit-node-start end-node) outer-end)))
       ;; Adjust bounds for newlines if option is enabled
       (when evil-tex-bora-select-newlines-with-envs
+        ;; Extend outer-beg to include leading whitespace on the line
+        ;; This ensures 'dae' deletes the whole line including indentation
+        (save-excursion
+          (goto-char outer-beg)
+          (let ((line-start (line-beginning-position)))
+            (when (string-match-p "\\`[ \t]*\\'" (buffer-substring line-start outer-beg))
+              (setq outer-beg line-start))))
         ;; Extend outer-end to include trailing newline
         (save-excursion
           (goto-char outer-end)
@@ -424,7 +431,19 @@ Returns position after delim if found, nil otherwise."
   "Select outer LaTeX environment."
   :extend-selection nil
   (when-let ((bounds (evil-tex-bora--bounds-of-environment)))
-    (list (nth 0 bounds) (nth 1 bounds))))
+    (let ((outer-beg (nth 0 bounds))
+          (outer-end (nth 1 bounds)))
+      ;; Use linewise type when environment occupies whole lines
+      ;; This ensures cursor lands on first non-whitespace char after 'dae'
+      (if (and evil-tex-bora-select-newlines-with-envs
+               (save-excursion
+                 (goto-char outer-beg)
+                 (bolp))
+               (save-excursion
+                 (goto-char outer-end)
+                 (or (eobp) (bolp))))
+          (evil-range outer-beg outer-end 'line)
+        (list outer-beg outer-end)))))
 
 ;; Command text objects (ic/ac)
 (evil-define-text-object evil-tex-bora-inner-command (count &optional beg end type)
@@ -507,6 +526,24 @@ Returns position after delim if found, nil otherwise."
 
 ;;; Minor mode
 
+(defvar evil-tex-bora--pending-first-non-blank nil
+  "When non-nil, move to first non-blank after current command.")
+
+(defun evil-tex-bora--post-command-first-non-blank ()
+  "Move cursor to first non-blank character if pending."
+  (when evil-tex-bora--pending-first-non-blank
+    (setq evil-tex-bora--pending-first-non-blank nil)
+    (back-to-indentation)))
+
+(defun evil-tex-bora--delete-advice (orig-fn beg end &optional type &rest args)
+  "Advice for `evil-delete' to ensure cursor moves to first non-blank.
+After linewise deletion of environment, move cursor to indentation.
+Only active in buffers where `evil-tex-bora-mode' is enabled."
+  (let ((was-line-type (and evil-tex-bora-mode (eq type 'line))))
+    (apply orig-fn beg end type args)
+    (when was-line-type
+      (setq evil-tex-bora--pending-first-non-blank t))))
+
 (defun evil-tex-bora--setup-text-objects ()
   "Setup text objects for evil-tex-bora."
   ;; Environment
@@ -534,9 +571,15 @@ Returns position after delim if found, nil otherwise."
           (user-error "Tree-sitter LaTeX parser not available"))
         (evil-tex-bora--setup-text-objects)
         ;; Ensure treesit parser is created for this buffer
-        (treesit-parser-create 'latex))
+        (treesit-parser-create 'latex)
+        ;; Add hook for cursor positioning after linewise delete
+        (add-hook 'post-command-hook #'evil-tex-bora--post-command-first-non-blank nil t))
     ;; Cleanup when mode is disabled
-    nil))
+    (remove-hook 'post-command-hook #'evil-tex-bora--post-command-first-non-blank t)))
+
+;; Add global advice for evil-delete (only runs in evil-tex-bora-mode buffers)
+(with-eval-after-load 'evil
+  (advice-add 'evil-delete :around #'evil-tex-bora--delete-advice))
 
 ;;;###autoload
 (defun evil-tex-bora-setup ()
