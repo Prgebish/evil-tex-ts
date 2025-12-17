@@ -65,10 +65,10 @@ Tree-sitter based LaTeX text objects for Evil mode in Emacs 29+.
 - [x] Create CLAUDE.md
 
 ### Phase 2: Text Objects
-- [ ] ie/ae (environment)
-- [ ] ic/ac (command)
-- [ ] im/am (math)
-- [ ] id/ad (delimiter)
+- [x] ie/ae (environment)
+- [x] ic/ac (command)
+- [x] im/am (math)
+- [x] id/ad (delimiter)
 
 ### Phase 3: Toggles
 - [ ] mte (environment asterisk)

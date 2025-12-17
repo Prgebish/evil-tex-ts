@@ -100,23 +100,71 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
            (inner-end (if end-node (treesit-node-start end-node) outer-end)))
       (list outer-beg outer-end inner-beg inner-end))))
 
+(defconst evil-tex-bora--command-types
+  '("generic_command"
+    ;; Section commands
+    "part" "chapter" "section" "subsection" "subsubsection"
+    "paragraph" "subparagraph"
+    ;; Reference commands
+    "label_definition" "label_reference" "label_reference_range"
+    "citation" "text_reference"
+    ;; Include commands
+    "package_include" "class_include" "latex_include"
+    "biblatex_include" "bibtex_include" "graphics_include"
+    "svg_include" "inkscape_include" "verbatim_include"
+    "import_include" "input_include")
+  "List of tree-sitter node types that represent LaTeX commands.")
+
 (defun evil-tex-bora--bounds-of-command ()
   "Return bounds of LaTeX command at point.
-Returns (outer-beg outer-end inner-beg inner-end) or nil."
+Returns (outer-beg outer-end inner-beg inner-end) or nil.
+
+Inner command is defined as the content inside all {}'s and []'s,
+or empty (inner-beg = inner-end = outer-end) if none exist.
+For example:
+  \\textbf{hello} -> inner is \"hello\"
+  \\frac{a}{b}    -> inner is \"a}{b\"
+  \\alpha         -> inner is empty"
   (when-let* ((node (evil-tex-bora--get-node-at-point))
               (cmd-node (evil-tex-bora--find-parent-by-type
-                         node '("generic_command"))))
+                         node evil-tex-bora--command-types)))
     (let* ((outer-beg (treesit-node-start cmd-node))
            (outer-end (treesit-node-end cmd-node))
-           ;; Inner is the argument content (inside braces)
-           (arg-node (treesit-node-child-by-field-name cmd-node "arg"))
-           (inner-beg (if arg-node
-                          (1+ (treesit-node-start arg-node))
-                        outer-beg))
-           (inner-end (if arg-node
-                          (1- (treesit-node-end arg-node))
+           ;; Collect all arg nodes (curly_group, brack_group)
+           (arg-nodes (evil-tex-bora--collect-command-args cmd-node))
+           (inner-beg (if arg-nodes
+                          (1+ (treesit-node-start (car arg-nodes)))
+                        outer-end))
+           (inner-end (if arg-nodes
+                          (1- (treesit-node-end (car (last arg-nodes))))
                         outer-end)))
       (list outer-beg outer-end inner-beg inner-end))))
+
+(defconst evil-tex-bora--arg-node-types
+  '("curly_group" "brack_group"
+    ;; Text variants used by some commands
+    "curly_group_text" "curly_group_text_list"
+    ;; Path variants used by include commands
+    "curly_group_path" "curly_group_path_list"
+    "curly_group_glob_pattern"
+    ;; Label variants
+    "curly_group_label"
+    ;; Key-value variants
+    "brack_group_key_value" "curly_group_key_value"
+    ;; Author/date variants
+    "curly_group_author_list" "brack_group_date")
+  "List of tree-sitter node types that represent command arguments.")
+
+(defun evil-tex-bora--collect-command-args (cmd-node)
+  "Collect all argument nodes from CMD-NODE."
+  (let ((args nil)
+        (child-count (treesit-node-child-count cmd-node)))
+    (dotimes (i child-count)
+      (let* ((child (treesit-node-child cmd-node i))
+             (type (treesit-node-type child)))
+        (when (member type evil-tex-bora--arg-node-types)
+          (push child args))))
+    (nreverse args)))
 
 (defun evil-tex-bora--bounds-of-math ()
   "Return bounds of math environment at point.
@@ -127,28 +175,132 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
                                  "math_environment"))))
     (let* ((outer-beg (treesit-node-start math-node))
            (outer-end (treesit-node-end math-node))
-           (node-type (treesit-node-type math-node))
-           ;; Inner bounds depend on delimiter type
-           (inner-beg (cond
-                       ((string= node-type "inline_formula")
-                        (+ outer-beg 2))  ; Skip \( or $
-                       ((string= node-type "displayed_equation")
-                        (+ outer-beg 2))  ; Skip \[ or $$
-                       (t outer-beg)))
-           (inner-end (cond
-                       ((string= node-type "inline_formula")
-                        (- outer-end 2))  ; Skip \) or $
-                       ((string= node-type "displayed_equation")
-                        (- outer-end 2))  ; Skip \] or $$
-                       (t outer-end))))
-      (list outer-beg outer-end inner-beg inner-end))))
+           (node-type (treesit-node-type math-node)))
+      (cond
+       ;; For math_environment, use begin/end nodes like regular environments
+       ((string= node-type "math_environment")
+        (let* ((begin-node (treesit-node-child-by-field-name math-node "begin"))
+               (end-node (treesit-node-child-by-field-name math-node "end"))
+               (inner-beg (if begin-node (treesit-node-end begin-node) outer-beg))
+               (inner-end (if end-node (treesit-node-start end-node) outer-end)))
+          (list outer-beg outer-end inner-beg inner-end)))
+       ;; For inline_formula and displayed_equation, find delimiter tokens
+       (t
+        (let* ((child-count (treesit-node-child-count math-node))
+               (first-child (when (> child-count 0) (treesit-node-child math-node 0)))
+               (last-child (when (> child-count 0) (treesit-node-child math-node (1- child-count))))
+               ;; Inner starts after first delimiter, ends before last delimiter
+               (inner-beg (if first-child (treesit-node-end first-child) outer-beg))
+               (inner-end (if last-child (treesit-node-start last-child) outer-end)))
+          (list outer-beg outer-end inner-beg inner-end)))))))
+
+(defconst evil-tex-bora--delimiter-pairs
+  '(("(" . ")")
+    ("[" . "]")
+    ("\\{" . "\\}")
+    ("\\langle" . "\\rangle")
+    ("\\lvert" . "\\rvert")
+    ("\\lVert" . "\\rVert")
+    ("\\lfloor" . "\\rfloor")
+    ("\\lceil" . "\\rceil"))
+  "List of delimiter pairs (left . right) for matching.")
+
+(defconst evil-tex-bora--delimiter-prefixes
+  '("" "\\left" "\\right"
+    "\\bigl" "\\bigr" "\\big"
+    "\\Bigl" "\\Bigr" "\\Big"
+    "\\biggl" "\\biggr" "\\bigg"
+    "\\Biggl" "\\Biggr" "\\Bigg")
+  "Prefixes that can appear before delimiters.")
 
 (defun evil-tex-bora--bounds-of-delimiter ()
   "Return bounds of delimiter at point.
+Returns (outer-beg outer-end inner-beg inner-end) or nil.
+
+Handles tree-sitter `math_delimiter' nodes (\\left/\\right, \\bigl/\\bigr)
+and falls back to searching for matching delimiter pairs."
+  (or (evil-tex-bora--bounds-of-math-delimiter)
+      (evil-tex-bora--bounds-of-simple-delimiter)))
+
+(defun evil-tex-bora--bounds-of-math-delimiter ()
+  "Return bounds of math_delimiter node at point, or nil."
+  (when-let* ((node (evil-tex-bora--get-node-at-point))
+              (delim-node (evil-tex-bora--find-parent-by-type
+                           node '("math_delimiter"))))
+    (let* ((outer-beg (treesit-node-start delim-node))
+           (outer-end (treesit-node-end delim-node))
+           ;; Find left and right delimiter children
+           (left-delim (treesit-node-child-by-field-name delim-node "left_delimiter"))
+           (right-command (treesit-node-child-by-field-name delim-node "right_command"))
+           ;; Inner is between left delimiter and right command
+           (inner-beg (if left-delim
+                          (treesit-node-end left-delim)
+                        outer-beg))
+           (inner-end (if right-command
+                          (treesit-node-start right-command)
+                        outer-end)))
+      (list outer-beg outer-end inner-beg inner-end))))
+
+(defun evil-tex-bora--bounds-of-simple-delimiter ()
+  "Return bounds of simple delimiter pair at point using search.
+Finds closest enclosing (), [], or \\{\\}."
+  (let ((best-bounds nil)
+        (point-pos (point)))
+    (save-excursion
+      (dolist (pair evil-tex-bora--delimiter-pairs)
+        (let* ((left (car pair))
+               (right (cdr pair))
+               (bounds (evil-tex-bora--find-delimiter-pair left right)))
+          (when bounds
+            ;; Check if this pair contains point and is closer than current best
+            (let ((outer-beg (nth 0 bounds))
+                  (outer-end (nth 1 bounds)))
+              (when (and (>= point-pos outer-beg)
+                         (<= point-pos outer-end)
+                         (or (null best-bounds)
+                             ;; Prefer smaller (more nested) delimiters
+                             (> (nth 0 bounds) (nth 0 best-bounds))))
+                (setq best-bounds bounds)))))))
+    best-bounds))
+
+(defun evil-tex-bora--find-delimiter-pair (left right)
+  "Find matching delimiter pair LEFT and RIGHT around point.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
-  ;; TODO: Implement delimiter detection
-  ;; This requires finding matching pairs like (), [], {}, \left(\right), etc.
-  nil)
+  (let ((orig-point (point))
+        left-pos right-pos)
+    (save-excursion
+      ;; Search backward for left delimiter
+      (when (evil-tex-bora--search-backward-delimiter left)
+        (setq left-pos (point))
+        ;; Search forward for matching right delimiter
+        (goto-char orig-point)
+        (when (evil-tex-bora--search-forward-delimiter right)
+          (setq right-pos (point))
+          ;; Verify this is a valid pair (left before right, both surround point)
+          (when (and left-pos right-pos
+                     (< left-pos orig-point)
+                     (> right-pos orig-point))
+            (list left-pos right-pos
+                  (+ left-pos (length left))
+                  (- right-pos (length right)))))))))
+
+(defun evil-tex-bora--search-backward-delimiter (delim)
+  "Search backward for DELIM, handling nesting.
+Returns position if found, nil otherwise."
+  (let ((depth 1)
+        (regexp (regexp-quote delim)))
+    (while (and (> depth 0)
+                (re-search-backward regexp nil t))
+      (setq depth (1- depth)))
+    (when (= depth 0)
+      (point))))
+
+(defun evil-tex-bora--search-forward-delimiter (delim)
+  "Search forward for DELIM.
+Returns position after delim if found, nil otherwise."
+  (let ((regexp (regexp-quote delim)))
+    (when (re-search-forward regexp nil t)
+      (point))))
 
 ;;; Evil text objects
 

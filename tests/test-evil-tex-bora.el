@@ -125,36 +125,385 @@
 
 ;;; Integration tests (require tree-sitter with LaTeX parser)
 
+(defmacro evil-tex-bora-test-with-latex (content pos &rest body)
+  "Create temp buffer with LaTeX CONTENT, goto POS, and execute BODY.
+Automatically skips test if tree-sitter with LaTeX parser is not available."
+  (declare (indent 2))
+  `(progn
+     (skip-unless evil-tex-bora-loaded)
+     (skip-unless (and (fboundp 'treesit-available-p)
+                       (treesit-available-p)
+                       (treesit-language-available-p 'latex)))
+     (with-temp-buffer
+       (insert ,content)
+       (treesit-parser-create 'latex)
+       (goto-char ,pos)
+       ,@body)))
+
+;;; Environment text object tests
+
 (ert-deftest test-environment-bounds-integration ()
   "Integration test for environment bounds with real tree-sitter."
-  (skip-unless evil-tex-bora-loaded)
-  (skip-unless (and (fboundp 'treesit-available-p)
-                    (treesit-available-p)
-                    (treesit-language-available-p 'latex)))
-  (with-temp-buffer
-    (insert "\\begin{equation}\nx = 1\n\\end{equation}")
-    (treesit-parser-create 'latex)
-    (goto-char 20)  ; Inside the environment
+  (evil-tex-bora-test-with-latex "\\begin{equation}\nx = 1\n\\end{equation}" 20
     (let ((bounds (evil-tex-bora--bounds-of-environment)))
-      (when bounds
-        (should (= (length bounds) 4))
-        ;; outer should span whole environment
-        (should (= (nth 0 bounds) 1))
-        (should (= (nth 1 bounds) (point-max)))))))
+      (should bounds)
+      (should (= (length bounds) 4))
+      ;; outer should span whole environment
+      (should (= (nth 0 bounds) 1))
+      (should (= (nth 1 bounds) (point-max)))
+      ;; inner should be content between begin and end
+      (should (= (nth 2 bounds) 17))
+      (should (= (nth 3 bounds) 24)))))
+
+(ert-deftest test-environment-generic ()
+  "Test generic environment like document."
+  (evil-tex-bora-test-with-latex "\\begin{document}hello\\end{document}" 18
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "hello")))))
+
+;;; Command text object tests
+
+(ert-deftest test-command-with-arg ()
+  "Test command with single argument."
+  (evil-tex-bora-test-with-latex "\\textbf{hello}" 10
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\textbf{hello}"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "hello")))))
+
+(ert-deftest test-command-without-arg ()
+  "Test command without arguments like \\alpha."
+  (evil-tex-bora-test-with-latex "\\alpha" 3
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\alpha"))
+      ;; inner should be empty for commands without args
+      (should (= (nth 2 bounds) (nth 3 bounds))))))
+
+(ert-deftest test-command-multi-arg ()
+  "Test command with multiple arguments like \\frac{a}{b}."
+  (evil-tex-bora-test-with-latex "\\frac{a}{b}" 7
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\frac{a}{b}"))
+      ;; inner should include both args
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "a}{b")))))
+
+(ert-deftest test-command-section ()
+  "Test section command."
+  (evil-tex-bora-test-with-latex "\\section{title}" 10
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\section{title}")))))
+
+;;; Math text object tests
 
 (ert-deftest test-math-bounds-integration ()
   "Integration test for math bounds with real tree-sitter."
-  (skip-unless evil-tex-bora-loaded)
-  (skip-unless (and (fboundp 'treesit-available-p)
-                    (treesit-available-p)
-                    (treesit-language-available-p 'latex)))
-  (with-temp-buffer
-    (insert "\\(x + y\\)")
-    (treesit-parser-create 'latex)
-    (goto-char 4)  ; Inside the math
+  (evil-tex-bora-test-with-latex "\\(x + y\\)" 5
     (let ((bounds (evil-tex-bora--bounds-of-math)))
-      (when bounds
-        (should (= (length bounds) 4))))))
+      (should bounds)
+      (should (= (length bounds) 4))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "x + y")))))
+
+(ert-deftest test-math-inline-dollar ()
+  "Test dollar inline math $...$."
+  (evil-tex-bora-test-with-latex "$x$" 2
+    (let ((bounds (evil-tex-bora--bounds-of-math)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "$x$"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "x")))))
+
+(ert-deftest test-math-display ()
+  "Test display math \\[...\\]."
+  (evil-tex-bora-test-with-latex "\\[a = b\\]" 5
+    (let ((bounds (evil-tex-bora--bounds-of-math)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\[a = b\\]"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "a = b")))))
+
+(ert-deftest test-math-environment ()
+  "Test math environment like equation."
+  (evil-tex-bora-test-with-latex "\\begin{equation}\nx = 1\n\\end{equation}" 20
+    (let ((bounds (evil-tex-bora--bounds-of-math)))
+      (should bounds)
+      ;; math_environment should include begin/end
+      (should (= (nth 0 bounds) 1))
+      (should (= (nth 1 bounds) (point-max))))))
+
+;;; Delimiter text object tests
+
+(ert-deftest test-delimiter-math-delimiter ()
+  "Test math_delimiter \\left...\\right."
+  (evil-tex-bora-test-with-latex "\\(\\left(a + b\\right)\\)" 10
+    (let ((bounds (evil-tex-bora--bounds-of-delimiter)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\left(a + b\\right)"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "a + b")))))
+
+(ert-deftest test-delimiter-simple-parens ()
+  "Test simple parentheses ()."
+  (evil-tex-bora-test-with-latex "\\((a + b)\\)" 6
+    (let ((bounds (evil-tex-bora--bounds-of-delimiter)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "(a + b)"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "a + b")))))
+
+(ert-deftest test-delimiter-brackets ()
+  "Test brackets []."
+  (evil-tex-bora-test-with-latex "\\([a + b]\\)" 6
+    (let ((bounds (evil-tex-bora--bounds-of-delimiter)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "[a + b]"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "a + b")))))
+
+;;; ==========================================================================
+;;; Examples from examples.md - comprehensive tests for documented features
+;;; ==========================================================================
+
+;;; Environment examples (ie/ae)
+;;; From examples.md:
+;;;   \begin{equation}
+;;;     x^2 + y^2 = z^2|
+;;;   \end{equation}
+;;; - vie selects inner (the formula)
+;;; - vae selects entire environment
+
+(ert-deftest test-example-environment-multiline ()
+  "Test environment from examples.md: multiline equation."
+  (evil-tex-bora-test-with-latex
+      "\\begin{equation}\n  x^2 + y^2 = z^2\n\\end{equation}" 25
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds)
+      ;; vie should select inner (formula with whitespace)
+      (let ((inner (buffer-substring (nth 2 bounds) (nth 3 bounds))))
+        (should (string-match-p "x\\^2 \\+ y\\^2 = z\\^2" inner)))
+      ;; vae should select entire environment
+      (let ((outer (buffer-substring (nth 0 bounds) (nth 1 bounds))))
+        (should (string-match-p "\\\\begin{equation}" outer))
+        (should (string-match-p "\\\\end{equation}" outer))))))
+
+(ert-deftest test-example-environment-nested ()
+  "Test nested environments - cursor in inner env."
+  (evil-tex-bora-test-with-latex
+      "\\begin{document}\\begin{equation}x\\end{equation}\\end{document}" 35
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds)
+      ;; Should select the inner equation environment, not document
+      (let ((outer (buffer-substring (nth 0 bounds) (nth 1 bounds))))
+        (should (string-match-p "\\\\begin{equation}" outer))
+        (should (not (string-match-p "\\\\begin{document}" outer)))))))
+
+(ert-deftest test-example-environment-align ()
+  "Test align environment."
+  (evil-tex-bora-test-with-latex
+      "\\begin{align}\na &= b \\\\\nc &= d\n\\end{align}" 20
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds)
+      (let ((outer (buffer-substring (nth 0 bounds) (nth 1 bounds))))
+        (should (string-match-p "\\\\begin{align}" outer))))))
+
+(ert-deftest test-example-environment-itemize ()
+  "Test itemize environment."
+  (evil-tex-bora-test-with-latex
+      "\\begin{itemize}\n\\item one\n\\item two\n\\end{itemize}" 25
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds)
+      (let ((inner (buffer-substring (nth 2 bounds) (nth 3 bounds))))
+        (should (string-match-p "\\\\item" inner))))))
+
+;;; Command examples (ic/ac)
+;;; From examples.md:
+;;;   \textbf{hello| world}
+;;; - vic selects "hello world"
+;;; - vac selects "\textbf{hello world}"
+
+(ert-deftest test-example-command-textbf-with-space ()
+  "Test command from examples.md: \\textbf{hello world}."
+  (evil-tex-bora-test-with-latex "\\textbf{hello world}" 12
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      ;; vic should select "hello world"
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "hello world"))
+      ;; vac should select "\textbf{hello world}"
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\textbf{hello world}")))))
+
+(ert-deftest test-example-command-nested ()
+  "Test nested commands - cursor in inner."
+  (evil-tex-bora-test-with-latex "\\textbf{\\textit{nested}}" 18
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      ;; Should select inner \textit, not outer \textbf
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\textit{nested}")))))
+
+(ert-deftest test-example-command-emph ()
+  "Test \\emph command."
+  (evil-tex-bora-test-with-latex "\\emph{emphasized text}" 10
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "emphasized text")))))
+
+(ert-deftest test-example-command-footnote ()
+  "Test \\footnote command."
+  (evil-tex-bora-test-with-latex "text\\footnote{a footnote}more" 15
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\footnote{a footnote}")))))
+
+(ert-deftest test-example-command-ref ()
+  "Test \\ref command."
+  (evil-tex-bora-test-with-latex "see \\ref{fig:main}" 10
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\ref{fig:main}")))))
+
+(ert-deftest test-example-command-sqrt ()
+  "Test \\sqrt command.
+Note: tree-sitter-latex parses \\sqrt[3]{x} as separate nodes,
+so we test simple \\sqrt{x} instead."
+  (evil-tex-bora-test-with-latex "\\sqrt{x}" 5
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\sqrt{x}"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "x")))))
+
+;;; Math examples (im/am)
+;;; From examples.md:
+;;;   \(x^2 + y^2 = z^2\)
+;;; - vim selects "x^2 + y^2 = z^2"
+;;; - vam selects "\(x^2 + y^2 = z^2\)"
+
+(ert-deftest test-example-math-inline-formula ()
+  "Test math from examples.md: \\(x^2 + y^2 = z^2\\)."
+  (evil-tex-bora-test-with-latex "\\(x^2 + y^2 = z^2\\)" 10
+    (let ((bounds (evil-tex-bora--bounds-of-math)))
+      (should bounds)
+      ;; vim should select formula
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "x^2 + y^2 = z^2"))
+      ;; vam should select with delimiters
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\(x^2 + y^2 = z^2\\)")))))
+
+(ert-deftest test-example-math-display-equation ()
+  "Test display math \\[...\\] with complex formula."
+  (evil-tex-bora-test-with-latex "\\[\\int_0^\\infty e^{-x^2} dx\\]" 15
+    (let ((bounds (evil-tex-bora--bounds-of-math)))
+      (should bounds)
+      (let ((inner (buffer-substring (nth 2 bounds) (nth 3 bounds))))
+        (should (string-match-p "\\\\int" inner))))))
+
+(ert-deftest test-example-math-in-text ()
+  "Test inline math embedded in text."
+  (evil-tex-bora-test-with-latex "The formula $E = mc^2$ is famous." 15
+    (let ((bounds (evil-tex-bora--bounds-of-math)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "$E = mc^2$"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "E = mc^2")))))
+
+(ert-deftest test-example-math-equation-env ()
+  "Test equation environment as math object."
+  (evil-tex-bora-test-with-latex
+      "\\begin{equation}\n  E = mc^2\n\\end{equation}" 25
+    (let ((bounds (evil-tex-bora--bounds-of-math)))
+      (should bounds)
+      ;; Math environment should work
+      (let ((outer (buffer-substring (nth 0 bounds) (nth 1 bounds))))
+        (should (string-match-p "\\\\begin{equation}" outer))))))
+
+(ert-deftest test-example-math-double-dollar ()
+  "Test double dollar display math $$...$$."
+  (evil-tex-bora-test-with-latex "$$x + y$$" 5
+    (let ((bounds (evil-tex-bora--bounds-of-math)))
+      ;; Note: tree-sitter-latex parses $$ as two inline formulas
+      ;; This test documents current behavior
+      (should bounds))))
+
+;;; Delimiter examples (id/ad)
+;;; From examples.md:
+;;;   \left(a + b|\right)
+;;; - vid selects "a + b"
+;;; - vad selects "\left(a + b\right)"
+
+(ert-deftest test-example-delimiter-left-right ()
+  "Test delimiter from examples.md: \\left(a + b\\right)."
+  (evil-tex-bora-test-with-latex "\\(\\left(a + b\\right)\\)" 10
+    (let ((bounds (evil-tex-bora--bounds-of-delimiter)))
+      (should bounds)
+      ;; vid should select "a + b"
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "a + b"))
+      ;; vad should select "\left(a + b\right)"
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\left(a + b\\right)")))))
+
+(ert-deftest test-example-delimiter-bigl-bigr ()
+  "Test \\bigl...\\bigr delimiters."
+  (evil-tex-bora-test-with-latex "\\(\\bigl(x + y\\bigr)\\)" 10
+    (let ((bounds (evil-tex-bora--bounds-of-delimiter)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "x + y")))))
+
+(ert-deftest test-example-delimiter-nested-parens ()
+  "Test nested parentheses - should select innermost."
+  (evil-tex-bora-test-with-latex "\\((a + (b + c))\\)" 10
+    (let ((bounds (evil-tex-bora--bounds-of-delimiter)))
+      (should bounds)
+      ;; Should select innermost (b + c) when cursor is there
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "b + c")))))
+
+(ert-deftest test-example-delimiter-angle-brackets ()
+  "Test \\langle...\\rangle delimiters."
+  (evil-tex-bora-test-with-latex "\\(\\langle x, y \\rangle\\)" 12
+    (let ((bounds (evil-tex-bora--bounds-of-delimiter)))
+      ;; These use fallback search, should still work
+      (should bounds))))
+
+;;; Edge cases and error handling
+
+(ert-deftest test-edge-case-empty-environment ()
+  "Test environment with empty content."
+  (evil-tex-bora-test-with-latex "\\begin{equation}\\end{equation}" 17
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds)
+      ;; Inner should be empty
+      (should (= (nth 2 bounds) (nth 3 bounds))))))
+
+(ert-deftest test-edge-case-empty-command-arg ()
+  "Test command with empty argument."
+  (evil-tex-bora-test-with-latex "\\textbf{}" 8
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      ;; Inner should be empty
+      (should (= (nth 2 bounds) (nth 3 bounds))))))
+
+(ert-deftest test-edge-case-cursor-at-begin ()
+  "Test cursor at \\begin."
+  (evil-tex-bora-test-with-latex "\\begin{equation}x\\end{equation}" 1
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds))))
+
+(ert-deftest test-edge-case-cursor-at-end ()
+  "Test cursor at \\end."
+  (evil-tex-bora-test-with-latex "\\begin{equation}x\\end{equation}" 18
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds))))
+
+(ert-deftest test-edge-case-math-at-delimiter ()
+  "Test cursor exactly at math delimiter."
+  (evil-tex-bora-test-with-latex "\\(x\\)" 1
+    (let ((bounds (evil-tex-bora--bounds-of-math)))
+      (should bounds))))
+
+(ert-deftest test-edge-case-unicode-content ()
+  "Test LaTeX with unicode content."
+  (evil-tex-bora-test-with-latex "\\textbf{привет мир}" 12
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "привет мир")))))
+
+(ert-deftest test-edge-case-special-chars ()
+  "Test command with special LaTeX characters."
+  (evil-tex-bora-test-with-latex "\\texttt{a\\_b\\%c}" 10
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds))))
 
 (provide 'test-evil-tex-bora)
 ;;; test-evil-tex-bora.el ends here
