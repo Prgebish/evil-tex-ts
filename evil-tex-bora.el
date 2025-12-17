@@ -244,24 +244,73 @@ For example with cursor at |:
 
 (defun evil-tex-bora--bounds-of-command-tree-sitter ()
   "Return bounds of LaTeX command using tree-sitter nodes.
-Returns (outer-beg outer-end inner-beg inner-end) or nil."
+Returns (outer-beg outer-end inner-beg inner-end) or nil.
+
+This function handles the case where tree-sitter doesn't include
+optional arguments [...] or curly arguments {...} as part of the command node.
+For example, \\sqrt[n]{x} is parsed as separate nodes:
+- generic_command: \\sqrt
+- text inside [...]: n
+- curly_group: {x}
+
+We detect this and extend the command bounds to include trailing [...] and {...}."
   (when-let* ((node (evil-tex-bora--get-node-at-point))
               (cmd-node (evil-tex-bora--find-parent-by-type
                          node evil-tex-bora--command-types)))
     (let* ((outer-beg (treesit-node-start cmd-node))
            (outer-end (treesit-node-end cmd-node))
            (pt (point))
-           ;; Collect all curly arg nodes (only curly_group types)
-           (curly-nodes (evil-tex-bora--collect-command-curly-args cmd-node))
-           ;; Find the curly group that contains point, or nearest to the right
-           (target-curly (evil-tex-bora--find-target-curly-group curly-nodes pt))
-           (inner-beg (if target-curly
-                          (1+ (treesit-node-start target-curly))
-                        outer-end))
-           (inner-end (if target-curly
-                          (1- (treesit-node-end target-curly))
-                        outer-end)))
-      (list outer-beg outer-end inner-beg inner-end))))
+           ;; Collect curly arg nodes that are children of the command
+           (curly-nodes (evil-tex-bora--collect-command-curly-args cmd-node)))
+      ;; If the command has no curly children, check if there are trailing
+      ;; [...] and {...} siblings that belong to this command
+      (when (null curly-nodes)
+        (let ((extended (evil-tex-bora--extend-command-bounds cmd-node)))
+          (when extended
+            (setq outer-end (nth 0 extended))
+            (setq curly-nodes (nth 1 extended)))))
+      (let* ((target-curly (evil-tex-bora--find-target-curly-group curly-nodes pt))
+             (inner-beg (if target-curly
+                            (1+ (treesit-node-start target-curly))
+                          outer-end))
+             (inner-end (if target-curly
+                            (1- (treesit-node-end target-curly))
+                          outer-end)))
+        (list outer-beg outer-end inner-beg inner-end)))))
+
+(defun evil-tex-bora--extend-command-bounds (cmd-node)
+  "Check if CMD-NODE has trailing [...] and {...} siblings.
+Returns (new-outer-end curly-nodes) if found, nil otherwise.
+CURLY-NODES is a list of curly_group nodes for inner selection."
+  (save-excursion
+    (goto-char (treesit-node-end cmd-node))
+    (let ((continue t)
+          (new-end (treesit-node-end cmd-node))
+          (curly-nodes nil))
+      ;; Skip whitespace and look for [ or {
+      (skip-chars-forward " \t\n")
+      ;; Skip optional [...] argument
+      (when (eq (char-after) ?\[)
+        (forward-sexp)
+        (setq new-end (point))
+        (skip-chars-forward " \t\n"))
+      ;; Collect all {...} arguments
+      (while (eq (char-after) ?\{)
+        (let ((grp-start (point)))
+          (forward-sexp)
+          (let ((grp-end (point)))
+            ;; Find the curly_group node at this position
+            (let ((node-at (treesit-node-at grp-start 'latex)))
+              (when node-at
+                (let ((curly-node (evil-tex-bora--find-parent-by-type
+                                   node-at '("curly_group"))))
+                  (when curly-node
+                    (push curly-node curly-nodes)))))
+            (setq new-end grp-end))
+          (skip-chars-forward " \t\n")))
+      ;; Only return if we found something new
+      (when (and curly-nodes (> new-end (treesit-node-end cmd-node)))
+        (list new-end (nreverse curly-nodes))))))
 
 (defun evil-tex-bora--find-target-curly-group (curly-nodes pt)
   "Find the target curly group for inner selection from CURLY-NODES.
@@ -309,18 +358,77 @@ or the first curly group if PT is after all of them."
   "Return bounds of LaTeX command using fallback search.
 This handles cases where tree-sitter doesn't recognize the command structure,
 such as \\sqrt[n]{x} where the curly group is not a child of the command.
+Also handles when cursor is inside optional [...] argument.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
-  (when-let* ((node (evil-tex-bora--get-node-at-point))
-              (curly-node (evil-tex-bora--find-parent-by-type
-                           node '("curly_group"))))
-    ;; Check if this curly_group is "orphan" (not part of a command)
-    (let ((parent (treesit-node-parent curly-node)))
-      (when (and parent
-                 (member (treesit-node-type parent) '("source_file" "text" "curly_group"
-                                                       "inline_formula" "displayed_equation")))
-        ;; This curly_group is not part of a recognized command
-        ;; Look backward for a command pattern and find all curly groups
-        (evil-tex-bora--find-command-with-curly-fallback curly-node)))))
+  (let ((node (evil-tex-bora--get-node-at-point)))
+    (when node
+      ;; Try to find orphan curly_group first
+      (let ((curly-node (evil-tex-bora--find-parent-by-type
+                         node '("curly_group"))))
+        (if curly-node
+            ;; Check if this curly_group is "orphan" (not part of a command)
+            (let ((parent (treesit-node-parent curly-node)))
+              (when (and parent
+                         (member (treesit-node-type parent)
+                                 '("source_file" "text" "curly_group"
+                                   "inline_formula" "displayed_equation")))
+                ;; This curly_group is not part of a recognized command
+                ;; Look backward for a command pattern and find all curly groups
+                (evil-tex-bora--find-command-with-curly-fallback curly-node)))
+          ;; No curly_group found - maybe cursor is inside [...] argument
+          ;; Check if we're inside brackets that follow a command
+          (evil-tex-bora--find-command-from-bracket-position))))))
+
+(defun evil-tex-bora--find-command-from-bracket-position ()
+  "Find command bounds when cursor is inside optional [...] argument.
+Returns (outer-beg outer-end inner-beg inner-end) or nil."
+  (save-excursion
+    (let ((pt (point))
+          bracket-start bracket-end)
+      ;; Check if we're inside brackets by looking for enclosing [ ... ]
+      (save-excursion
+        (when (re-search-backward "\\[" (line-beginning-position 0) t)
+          (setq bracket-start (point))
+          (condition-case nil
+              (progn
+                (forward-sexp)
+                (when (> (point) pt)
+                  ;; Point was inside this bracket pair
+                  (setq bracket-end (point))))
+            (error nil))))
+      (when (and bracket-start bracket-end)
+        ;; Now look backward for command
+        (goto-char bracket-start)
+        (skip-chars-backward " \t\n")
+        (when (re-search-backward "\\\\[a-zA-Z@*]+" (line-beginning-position 0) t)
+          (let ((cmd-start (match-beginning 0))
+                (cmd-name-end (match-end 0)))
+            ;; Verify the command is immediately before the bracket
+            (goto-char cmd-name-end)
+            (skip-chars-forward " \t\n")
+            (when (= (point) bracket-start)
+              ;; Found the command! Now collect the full extent
+              (goto-char bracket-end)
+              (skip-chars-forward " \t\n")
+              ;; Collect all curly groups after the bracket
+              (let ((cmd-end bracket-end)
+                    (curly-groups nil))
+                (while (eq (char-after) ?\{)
+                  (let ((grp-start (point)))
+                    (forward-sexp)
+                    (push (cons grp-start (point)) curly-groups)
+                    (setq cmd-end (point))
+                    (skip-chars-forward " \t\n")))
+                (setq curly-groups (nreverse curly-groups))
+                ;; Find the target curly group
+                (if curly-groups
+                    (let ((target (evil-tex-bora--find-target-curly-group-from-positions
+                                   curly-groups pt)))
+                      (when target
+                        (list cmd-start cmd-end
+                              (1+ (car target)) (1- (cdr target)))))
+                  ;; No curly groups - inner is empty
+                  (list cmd-start cmd-end cmd-end cmd-end))))))))))
 
 (defun evil-tex-bora--find-command-with-curly-fallback (curly-node)
   "Find command bounds when CURLY-NODE is not recognized as part of a command.

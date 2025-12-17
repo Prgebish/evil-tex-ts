@@ -400,6 +400,39 @@ so we use fallback search to find the command boundaries."
       ;; inner should be only the content inside curly braces (not the optional arg)
       (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "content")))))
 
+(ert-deftest test-command-sqrt-cursor-in-curly ()
+  "Test \\sqrt[n]{x} with cursor inside {} - should select curly content.
+\\sqrt[n + 1]{a_1 \\cdot| a_2} -> inner is 'a_1 \\cdot a_2'"
+  (evil-tex-bora-test-with-latex "\\sqrt[n + 1]{a_1 \\cdot a_2}" 22
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds))
+                       "\\sqrt[n + 1]{a_1 \\cdot a_2}"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds))
+                       "a_1 \\cdot a_2")))))
+
+(ert-deftest test-command-sqrt-cursor-in-brackets ()
+  "Test \\sqrt[n]{x} with cursor inside [] - should select curly content.
+\\sqrt[n +| 1]{a_1 \\cdot a_2} -> inner is 'a_1 \\cdot a_2'"
+  (evil-tex-bora-test-with-latex "\\sqrt[n + 1]{a_1 \\cdot a_2}" 9
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds))
+                       "\\sqrt[n + 1]{a_1 \\cdot a_2}"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds))
+                       "a_1 \\cdot a_2")))))
+
+(ert-deftest test-command-sqrt-cursor-on-name ()
+  "Test \\sqrt[n]{x} with cursor on command name - should select curly content.
+\\sq|rt[n + 1]{a_1 \\cdot a_2} -> inner is 'a_1 \\cdot a_2'"
+  (evil-tex-bora-test-with-latex "\\sqrt[n + 1]{a_1 \\cdot a_2}" 4
+    (let ((bounds (evil-tex-bora--bounds-of-command)))
+      (should bounds)
+      (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds))
+                       "\\sqrt[n + 1]{a_1 \\cdot a_2}"))
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds))
+                       "a_1 \\cdot a_2")))))
+
 ;;; Math examples (im/am)
 ;;; From examples.md:
 ;;;   \(x^2 + y^2 = z^2\)
