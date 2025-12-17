@@ -151,13 +151,14 @@ Automatically skips test if tree-sitter with LaTeX parser is not available."
       ;; outer should span whole environment
       (should (= (nth 0 bounds) 1))
       (should (= (nth 1 bounds) (point-max)))
-      ;; inner should be content only (excluding newlines/whitespace when option enabled)
+      ;; inner includes content line with trailing newline for clean 'die' behavior
       ;; With evil-tex-bora-select-newlines-with-envs=t:
-      ;;   inner-beg skips "\n" after \begin{equation}
-      ;;   inner-end moves back before "\n" before \end
-      (should (= (nth 2 bounds) 18))  ; after "\n"
-      (should (= (nth 3 bounds) 23))  ; before "\n" before \end
-      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "x = 1")))))
+      ;;   inner-beg skips "\n" after \begin{equation} (starts at beginning of content line)
+      ;;   inner-end is at beginning of \end line (includes trailing newline of content)
+      ;; Note: \begin{equation} is 16 chars, so position 17 is \n, position 18 is 'x'
+      (should (= (nth 2 bounds) 18))  ; after "\n", at start of content line
+      (should (= (nth 3 bounds) 24))  ; at start of \end line
+      (should (string= (buffer-substring (nth 2 bounds) (nth 3 bounds)) "x = 1\n")))))
 
 (ert-deftest test-environment-generic ()
   "Test generic environment like document."
@@ -513,20 +514,24 @@ so we test simple \\sqrt{x} instead."
 ;;; The inner selection should NOT include \begin{align*} or the \ before \end
 
 (ert-deftest test-user-issue-align-star-inner ()
-  "Test align* environment - inner should select only content, not delimiters.
+  "Test align* environment - inner includes full content line for clean 'die'.
 With `evil-tex-bora-select-newlines-with-envs' enabled (default),
-inner selection skips leading newline/whitespace after \\begin and
-trailing whitespace/newline before \\end."
+inner selection includes the entire content line (with indentation)
+and trailing newline, so 'die' leaves a clean environment without empty lines."
   (evil-tex-bora-test-with-latex
-      "    \\begin{align*}\n      x > 0\n    \\end{align*}" 31  ; cursor after 'x > 0'
+      "    \\begin{align*}\n      x > 0\n    \\end{align*}" 30  ; cursor on '0'
     (let ((bounds (evil-tex-bora--bounds-of-environment)))
       (should bounds)
-      ;; Inner should be just "x > 0" - skipping newlines and indentation
-      (should (= (nth 2 bounds) 26))  ; position of 'x'
-      (should (= (nth 3 bounds) 31))  ; position after '0'
-      ;; Verify inner text is exactly the content
+      ;; Inner should include the full content line with indentation and trailing newline
+      ;; This ensures 'die' produces:
+      ;;   \begin{align*}
+      ;;   \end{align*}
+      ;; instead of leaving an empty line
+      (should (= (nth 2 bounds) 20))  ; after "\n" (start of content line with indentation)
+      (should (= (nth 3 bounds) 32))  ; at start of \end line
+      ;; Verify inner text includes indentation and trailing newline
       (let ((inner-text (buffer-substring (nth 2 bounds) (nth 3 bounds))))
-        (should (string= inner-text "x > 0"))))))
+        (should (string= inner-text "      x > 0\n"))))))
 
 (ert-deftest test-user-issue-align-star-outer-with-newline ()
   "Test that outer environment includes trailing newline for clean deletion."

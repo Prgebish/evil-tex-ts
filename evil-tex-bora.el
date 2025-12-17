@@ -122,18 +122,18 @@ When `evil-tex-bora-select-newlines-with-envs' is non-nil:
           (goto-char outer-end)
           (when (eq (char-after) ?\n)
             (setq outer-end (1+ outer-end))))
-        ;; Skip newline and indentation after \begin{...} for inner-beg
+        ;; Skip only newline after \begin{...} for inner-beg (NOT whitespace)
+        ;; This ensures that 'die' deletes the entire content line including indentation
         (save-excursion
           (goto-char inner-beg)
-          (when (looking-at "\n[ \t]*")
-            (setq inner-beg (match-end 0))))
-        ;; Move back past indentation and newline before \end{...} for inner-end
+          (when (eq (char-after) ?\n)
+            (setq inner-beg (1+ inner-beg))))
+        ;; Move inner-end to beginning of line with \end{...}
+        ;; This includes the trailing newline of content in the inner region
         (save-excursion
           (goto-char inner-end)
           (when (looking-back "^[ \t]*" (line-beginning-position))
-            (goto-char (match-beginning 0))
-            (when (eq (char-before) ?\n)
-              (setq inner-end (1- (point)))))))
+            (setq inner-end (line-beginning-position)))))
       (list outer-beg outer-end inner-beg inner-end))))
 
 (defconst evil-tex-bora--command-types
