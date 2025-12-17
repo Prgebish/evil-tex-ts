@@ -505,5 +505,37 @@ so we test simple \\sqrt{x} instead."
     (let ((bounds (evil-tex-bora--bounds-of-command)))
       (should bounds))))
 
+;;; User-reported issue: align* inner environment selection
+;;; The inner selection should NOT include \begin{align*} or the \ before \end
+
+(ert-deftest test-user-issue-align-star-inner ()
+  "Test align* environment - inner should not include \\begin or \\ before \\end.
+User reported that vie selects \\begin{align*} and the \\ before end."
+  (evil-tex-bora-test-with-latex
+      "    \\begin{align*}\n      x > 0\n    \\end{align*}" 31  ; cursor after 'x > 0'
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds)
+      ;; Inner should NOT start at \begin - it should start after }
+      (should (= (nth 2 bounds) 19))  ; position after \begin{align*}
+      ;; Inner should NOT include the \ before \end
+      (should (= (nth 3 bounds) 36))  ; position of \ in \end
+      ;; Verify inner text does not contain \begin or \end
+      (let ((inner-text (buffer-substring (nth 2 bounds) (nth 3 bounds))))
+        (should (not (string-match-p "\\\\begin" inner-text)))
+        (should (not (string-match-p "\\\\end" inner-text)))
+        ;; But should contain the actual content
+        (should (string-match-p "x > 0" inner-text))))))
+
+(ert-deftest test-user-issue-align-star-boundary-chars ()
+  "Verify exact characters at inner boundaries for align* environment."
+  (evil-tex-bora-test-with-latex
+      "    \\begin{align*}\n      x > 0\n    \\end{align*}" 31
+    (let ((bounds (evil-tex-bora--bounds-of-environment)))
+      (should bounds)
+      ;; Character AT inner-end should be \ (first char of \end, NOT selected)
+      (should (= (char-after (nth 3 bounds)) ?\\))
+      ;; Character BEFORE inner-end should be space (last selected char)
+      (should (= (char-after (1- (nth 3 bounds))) ?\s)))))
+
 (provide 'test-evil-tex-bora)
 ;;; test-evil-tex-bora.el ends here

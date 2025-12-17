@@ -303,58 +303,63 @@ Returns position after delim if found, nil otherwise."
       (point))))
 
 ;;; Evil text objects
+;;
+;; Text objects return a simple list (BEG END) without explicit type.
+;; This ensures proper behavior in both visual and operator states.
+;; Using evil-range with the passed TYPE causes issues because visual
+;; state passes 'inclusive which includes the end position in selection.
 
 ;; Environment text objects (ie/ae)
 (evil-define-text-object evil-tex-bora-inner-environment (count &optional beg end type)
   "Select inner LaTeX environment."
   :extend-selection nil
   (when-let ((bounds (evil-tex-bora--bounds-of-environment)))
-    (evil-range (nth 2 bounds) (nth 3 bounds) type)))
+    (list (nth 2 bounds) (nth 3 bounds))))
 
 (evil-define-text-object evil-tex-bora-outer-environment (count &optional beg end type)
   "Select outer LaTeX environment."
   :extend-selection nil
   (when-let ((bounds (evil-tex-bora--bounds-of-environment)))
-    (evil-range (nth 0 bounds) (nth 1 bounds) type)))
+    (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Command text objects (ic/ac)
 (evil-define-text-object evil-tex-bora-inner-command (count &optional beg end type)
   "Select inner LaTeX command."
   :extend-selection nil
   (when-let ((bounds (evil-tex-bora--bounds-of-command)))
-    (evil-range (nth 2 bounds) (nth 3 bounds) type)))
+    (list (nth 2 bounds) (nth 3 bounds))))
 
 (evil-define-text-object evil-tex-bora-outer-command (count &optional beg end type)
   "Select outer LaTeX command."
   :extend-selection nil
   (when-let ((bounds (evil-tex-bora--bounds-of-command)))
-    (evil-range (nth 0 bounds) (nth 1 bounds) type)))
+    (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Math text objects (im/am)
 (evil-define-text-object evil-tex-bora-inner-math (count &optional beg end type)
   "Select inner math environment."
   :extend-selection nil
   (when-let ((bounds (evil-tex-bora--bounds-of-math)))
-    (evil-range (nth 2 bounds) (nth 3 bounds) type)))
+    (list (nth 2 bounds) (nth 3 bounds))))
 
 (evil-define-text-object evil-tex-bora-outer-math (count &optional beg end type)
   "Select outer math environment."
   :extend-selection nil
   (when-let ((bounds (evil-tex-bora--bounds-of-math)))
-    (evil-range (nth 0 bounds) (nth 1 bounds) type)))
+    (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Delimiter text objects (id/ad)
 (evil-define-text-object evil-tex-bora-inner-delimiter (count &optional beg end type)
   "Select inner delimiter."
   :extend-selection nil
   (when-let ((bounds (evil-tex-bora--bounds-of-delimiter)))
-    (evil-range (nth 2 bounds) (nth 3 bounds) type)))
+    (list (nth 2 bounds) (nth 3 bounds))))
 
 (evil-define-text-object evil-tex-bora-outer-delimiter (count &optional beg end type)
   "Select outer delimiter."
   :extend-selection nil
   (when-let ((bounds (evil-tex-bora--bounds-of-delimiter)))
-    (evil-range (nth 0 bounds) (nth 1 bounds) type)))
+    (list (nth 0 bounds) (nth 1 bounds))))
 
 ;;; Toggles
 
