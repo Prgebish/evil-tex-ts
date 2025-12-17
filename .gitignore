@@ -1,0 +1,17 @@
+# Byte-compiled Emacs Lisp
+*.elc
+
+# Backup files
+*~
+\#*\#
+.\#*
+
+# Auto-save files
+.#*
+
+# Package archives
+*.tar
+
+# Emacs desktop
+.emacs.desktop
+.emacs.desktop.lock
