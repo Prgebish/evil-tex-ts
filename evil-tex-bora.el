@@ -901,7 +901,10 @@ Inline to display:
 
 Display to inline (based on `evil-tex-bora-preferred-inline-math'):
   \\[...\\] -> $...$ (if `dollar')
-  \\[...\\] -> \\(...\\) (if `paren')"
+  \\[...\\] -> \\(...\\) (if `paren')
+
+When converting display to inline, multiline content is normalized:
+newlines are collapsed to single spaces."
   (interactive)
   (when-let* ((bounds (evil-tex-bora--bounds-of-math))
               (outer-beg (nth 0 bounds))
@@ -930,13 +933,23 @@ Display to inline (based on `evil-tex-bora-preferred-inline-math'):
           (insert "\\["))
          ;; \[...\] -> inline (based on preference)
          ((and (string= left-delim "\\[") (string= right-delim "\\]"))
-          (let ((use-dollar (eq evil-tex-bora-preferred-inline-math 'dollar)))
-            (goto-char inner-end)
-            (delete-char 2)
-            (insert (if use-dollar "$" "\\)"))
+          (let* ((use-dollar (eq evil-tex-bora-preferred-inline-math 'dollar))
+                 (content (buffer-substring-no-properties inner-beg inner-end))
+                 (had-newlines (string-match-p "\n" content))
+                 ;; Normalize content: trim and collapse newlines to spaces
+                 (normalized (if had-newlines
+                                 (replace-regexp-in-string
+                                  "[ \t]*\\(?:\n[ \t]*\\)+" " "
+                                  (string-trim content))
+                               content)))
+            ;; Replace the entire math expression
+            (delete-region outer-beg outer-end)
             (goto-char outer-beg)
-            (delete-char 2)
-            (insert (if use-dollar "$" "\\(")))))))))
+            (insert (if use-dollar "$" "\\(")
+                    normalized
+                    (if use-dollar "$" "\\)"))
+            (when had-newlines
+              (message "Newlines collapsed to spaces")))))))))
 
 (defconst evil-tex-bora--size-prefix-regexp
   "\\\\\\(?:left\\|right\\|bigl\\|bigr\\|Bigl\\|Bigr\\|biggl\\|biggr\\|Biggl\\|Biggr\\|bigg\\|Bigg\\|big\\|Big\\)"
@@ -1083,6 +1096,96 @@ For example, \\alpha is empty, \\frac{a}{b} is not.")
   (if evil-tex-bora--last-command-empty
       (cons (concat "\\" command "") "")
     (cons (concat "\\" command "{") "}")))
+
+(defun evil-tex-bora--surround-inline-math ()
+  "Return surround pair for inline math based on `evil-tex-bora-preferred-inline-math'."
+  (if (eq evil-tex-bora-preferred-inline-math 'dollar)
+      '("$" . "$")
+    '("\\(" . "\\)")))
+
+(defun evil-tex-bora--normalize-inline-math-region (beg end)
+  "Normalize region BEG END for inline math: trim and collapse newlines to spaces.
+Returns (NEW-END INDENT-STRING HAD-TRAILING-NEWLINE)."
+  (save-excursion
+    ;; Check if there's a trailing newline
+    (goto-char end)
+    (let ((had-trailing-newline (and (> end beg)
+                                      (eq (char-before end) ?\n))))
+      ;; First, trim trailing whitespace/newlines
+      (skip-chars-backward " \t\n" beg)
+      (let ((new-end (point)))
+        (delete-region new-end end)
+        (setq end new-end))
+      ;; Capture indentation of the first non-blank line
+      (goto-char beg)
+      (skip-chars-forward " \t\n" end)
+      (let* ((first-content-pos (point))
+             (indent-string (if (> first-content-pos beg)
+                                ;; Get indentation from the line where content starts
+                                (save-excursion
+                                  (goto-char first-content-pos)
+                                  (let ((bol (line-beginning-position)))
+                                    (buffer-substring-no-properties bol first-content-pos)))
+                              "")))
+        ;; Remove leading whitespace/newlines
+        (delete-region beg first-content-pos)
+        ;; Adjust end position after deletion
+        (setq end (- end (- first-content-pos beg)))
+        ;; Replace internal newlines (with surrounding whitespace) with single space
+        (goto-char beg)
+        (while (re-search-forward "[ \t]*\\(?:\n[ \t]*\\)+" end t)
+          (let ((match-len (- (match-end 0) (match-beginning 0))))
+            (replace-match " ")
+            (setq end (- end (1- match-len)))))
+        (list end indent-string had-trailing-newline)))))
+
+(defun evil-tex-bora--surround-region-advice (orig-fn beg end type char &optional force-new-line)
+  "Advice for `evil-surround-region' to normalize inline math regions.
+Normalizes the region (trims and collapses newlines) when surrounding with inline math.
+For linewise selections, changes type to `inclusive' to prevent evil-surround from
+adding extra newlines."
+  (let (indent-string had-trailing-newline content-length original-col original-line)
+    (when (and evil-tex-bora-mode
+               (eq char ?m))
+      ;; Save cursor position (line and column)
+      (setq original-line (line-number-at-pos))
+      (setq original-col (current-column))
+      (let ((result (evil-tex-bora--normalize-inline-math-region beg end)))
+        (setq end (nth 0 result))
+        (setq indent-string (nth 1 result))
+        (setq had-trailing-newline (nth 2 result))
+        ;; Calculate content length (from beg to new end)
+        (setq content-length (- end beg)))
+      ;; For inline math, force inclusive type to prevent evil-surround from
+      ;; adding newlines around the content (linewise behavior)
+      (when (eq type 'line)
+        (setq type 'inclusive)))
+    ;; Call original surround function
+    (funcall orig-fn beg end type char force-new-line)
+    ;; Post-process: add indent before and newline after the surround delimiters
+    (when (and evil-tex-bora-mode
+               (eq char ?m))
+      (let ((delim-pair (evil-tex-bora--surround-inline-math)))
+        (save-excursion
+          ;; Add trailing newline after the closing delimiter FIRST
+          ;; (before adding indent, so positions are simpler)
+          (when had-trailing-newline
+            ;; Position after closing delimiter:
+            ;; beg + length(left-delim) + content-length + length(right-delim)
+            (goto-char (+ beg
+                          (length (car delim-pair))
+                          content-length
+                          (length (cdr delim-pair))))
+            (insert "\n"))
+          ;; Add indentation before the opening delimiter
+          (when (and indent-string (> (length indent-string) 0))
+            (goto-char beg)
+            (insert indent-string))))
+      ;; Restore cursor to original line and column
+      (when (and original-line original-col)
+        (goto-char (point-min))
+        (forward-line (1- original-line))
+        (move-to-column original-col)))))
 
 ;; Environment keymap for surround
 
@@ -1293,7 +1396,7 @@ Uses tree-sitter to check for math context."
 ;; Surround delimiters alist
 
 (defvar evil-tex-bora-surround-delimiters
-  `((?m "\\(" . "\\)")
+  `((?m . ,#'evil-tex-bora--surround-inline-math)
     (?M "\\[" . "\\]")
     (?c . ,#'evil-tex-bora-surround-command-prompt)
     (?e . ,#'evil-tex-bora-surround-env-prompt)
@@ -1307,7 +1410,7 @@ Uses tree-sitter to check for math context."
   "Delimiter pairs for `evil-surround'.
 
 Each element is (CHAR LEFT-DELIM . RIGHT-DELIM) or (CHAR . FUNCTION).
-- m: inline math \\(...\\)
+- m: inline math (uses `evil-tex-bora-preferred-inline-math': $...$ or \\(...\\))
 - M: display math \\[...\\]
 - c: command (prompts for name)
 - e: environment (prompts with keymap)
@@ -1340,7 +1443,9 @@ Things like 'csm' (change surrounding math) will work after this."
     (add-to-list 'evil-surround-local-inner-text-object-map-list
                  evil-tex-bora-inner-text-objects-map)
     (add-to-list 'evil-surround-local-outer-text-object-map-list
-                 evil-tex-bora-outer-text-objects-map)))
+                 evil-tex-bora-outer-text-objects-map))
+  ;; Add advice for normalizing inline math regions
+  (advice-add 'evil-surround-region :around #'evil-tex-bora--surround-region-advice))
 
 (defun evil-tex-bora-set-up-embrace ()
   "Configure evil-embrace not to steal our evil-surround keybinds."

@@ -798,6 +798,22 @@ This ensures cursor lands on first non-whitespace char after deletion."
     (evil-tex-bora-toggle-math-mode)
     (should (string= (buffer-string) "\\[\\int_0^1 f(x) dx\\]"))))
 
+(ert-deftest test-toggle-math-mode-display-multiline-to-inline ()
+  "Test toggle math: multiline \\[...\\] -> normalized inline."
+  (evil-tex-bora-test-with-latex "\\[\n  a + b\n  = c + d\n\\]" 5
+    (let ((evil-tex-bora-preferred-inline-math 'dollar))
+      (evil-tex-bora-toggle-math-mode)
+      ;; Multiline content should be normalized: trimmed and newlines collapsed
+      (should (string= (buffer-string) "$a + b = c + d$")))))
+
+(ert-deftest test-toggle-math-mode-display-multiline-preserves-single-space ()
+  "Test toggle math: multiline display collapses to single spaces."
+  (evil-tex-bora-test-with-latex "\\[x\n\n\ny\\]" 3
+    (let ((evil-tex-bora-preferred-inline-math 'dollar))
+      (evil-tex-bora-toggle-math-mode)
+      ;; Multiple newlines should collapse to single space
+      (should (string= (buffer-string) "$x y$")))))
+
 ;;; Delimiter sizing toggle (mtd)
 
 (ert-deftest test-toggle-delim-size-add-left-right ()
@@ -957,11 +973,125 @@ This ensures cursor lands on first non-whitespace char after deletion."
 ;;; Surround delimiters content tests
 
 (ert-deftest test-surround-delimiter-m ()
-  "Test inline math delimiter ?m."
+  "Test inline math delimiter ?m is a function."
   (skip-unless evil-tex-bora-loaded)
   (let ((delim (assq ?m evil-tex-bora-surround-delimiters)))
     (should delim)
-    (should (equal (cdr delim) '("\\(" . "\\)")))))
+    ;; ?m is now a function that respects evil-tex-bora-preferred-inline-math
+    (should (functionp (cdr delim)))))
+
+(ert-deftest test-surround-inline-math-dollar-preference ()
+  "Test inline math function returns dollar delimiters when preferred."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((evil-tex-bora-preferred-inline-math 'dollar))
+    (let ((result (evil-tex-bora--surround-inline-math)))
+      (should (equal result '("$" . "$"))))))
+
+(ert-deftest test-surround-inline-math-paren-preference ()
+  "Test inline math function returns paren delimiters when preferred."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((evil-tex-bora-preferred-inline-math 'paren))
+    (let ((result (evil-tex-bora--surround-inline-math)))
+      (should (equal result '("\\(" . "\\)"))))))
+
+;;; Inline math region normalization tests
+;;; Note: evil-tex-bora--normalize-inline-math-region returns
+;;; (NEW-END INDENT-STRING HAD-TRAILING-NEWLINE)
+
+(ert-deftest test-normalize-inline-math-trim-leading-newlines ()
+  "Test that leading newlines are trimmed but indentation captured."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    (insert "\n\nfoo bar")
+    (let ((result (evil-tex-bora--normalize-inline-math-region 1 (point-max))))
+      ;; No indentation to preserve (content starts at column 0)
+      (should (string= (buffer-string) "foo bar"))
+      (should (= (nth 0 result) 8))
+      (should (string= (nth 1 result) ""))
+      (should (not (nth 2 result))))))
+
+(ert-deftest test-normalize-inline-math-capture-trailing-newline ()
+  "Test that trailing newline is captured but stripped from region."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    (insert "foo bar\n")
+    (let ((result (evil-tex-bora--normalize-inline-math-region 1 (point-max))))
+      ;; Trailing newline is stripped but flag is set
+      (should (string= (buffer-string) "foo bar"))
+      (should (= (nth 0 result) 8))
+      (should (nth 2 result)))))
+
+(ert-deftest test-normalize-inline-math-trim-multiple-trailing-newlines ()
+  "Test that multiple trailing newlines are trimmed and flag set."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    (insert "foo bar\n\n\n")
+    (let ((result (evil-tex-bora--normalize-inline-math-region 1 (point-max))))
+      ;; All trailing newlines stripped, flag is set
+      (should (string= (buffer-string) "foo bar"))
+      (should (= (nth 0 result) 8))
+      (should (nth 2 result)))))
+
+(ert-deftest test-normalize-inline-math-collapse-internal-newlines ()
+  "Test that internal newlines are collapsed to single space."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    (insert "foo\nbar")
+    (let ((result (evil-tex-bora--normalize-inline-math-region 1 (point-max))))
+      (should (string= (buffer-string) "foo bar"))
+      (should (= (nth 0 result) 8)))))
+
+(ert-deftest test-normalize-inline-math-collapse-multiple-newlines ()
+  "Test that multiple internal newlines are collapsed to single space."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    (insert "foo\n\n\nbar")
+    (let ((result (evil-tex-bora--normalize-inline-math-region 1 (point-max))))
+      (should (string= (buffer-string) "foo bar"))
+      (should (= (nth 0 result) 8)))))
+
+(ert-deftest test-normalize-inline-math-collapse-newlines-with-whitespace ()
+  "Test that newlines with surrounding whitespace are collapsed."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    (insert "foo  \n  bar")
+    (let ((result (evil-tex-bora--normalize-inline-math-region 1 (point-max))))
+      (should (string= (buffer-string) "foo bar"))
+      (should (= (nth 0 result) 8)))))
+
+(ert-deftest test-normalize-inline-math-complex-multiline ()
+  "Test normalization of complex multiline content captures indentation."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    (insert "\n  a + b\n  = c + d\n")
+    (let ((result (evil-tex-bora--normalize-inline-math-region 1 (point-max))))
+      ;; Content is normalized, indentation captured separately
+      (should (string= (buffer-string) "a + b = c + d"))
+      (should (= (nth 0 result) 14))
+      (should (string= (nth 1 result) "  "))
+      (should (nth 2 result)))))
+
+(ert-deftest test-normalize-inline-math-preserves-single-line ()
+  "Test that single-line content is preserved unchanged."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    (insert "foo bar")
+    (let ((result (evil-tex-bora--normalize-inline-math-region 1 (point-max))))
+      (should (string= (buffer-string) "foo bar"))
+      (should (= (nth 0 result) 8)))))
+
+(ert-deftest test-normalize-inline-math-linewise-region ()
+  "Test normalization of linewise selection captures indent and trailing newline."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    ;; Linewise selection typically includes the newline at end of each line
+    (insert "    123 + 2222\n    \\text{123}\n")
+    (let ((result (evil-tex-bora--normalize-inline-math-region 1 (point-max))))
+      ;; Content is normalized, indentation and trailing newline captured
+      (should (string= (buffer-string) "123 + 2222 \\text{123}"))
+      (should (= (nth 0 result) 22))
+      (should (string= (nth 1 result) "    "))
+      (should (nth 2 result)))))
 
 (ert-deftest test-surround-delimiter-M ()
   "Test display math delimiter ?M."
