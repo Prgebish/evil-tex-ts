@@ -1151,12 +1151,12 @@ For environments (?e): line breaks are added when surrounding partial lines."
   (let (indent-string had-trailing-newline content-length original-col original-line
         is-inline-math is-command is-env
         ;; For environment: remember if there's text before/after on the same line
-        env-has-text-before env-has-text-after env-indent)
+        env-has-text-before env-has-text-after env-indent env-is-linewise)
     (setq is-inline-math (and evil-tex-bora-mode (eq char ?m)))
     (setq is-command (and evil-tex-bora-mode (eq char ?c)))
     (setq is-env (and evil-tex-bora-mode (eq char ?e)))
-    ;; For environment: check if surrounding partial line
-    (when is-env
+    ;; For environment: check if surrounding partial line (not linewise)
+    (when (and is-env (not (eq type 'line)))
       (save-excursion
         ;; Check for non-whitespace text before beg on the same line
         (goto-char beg)
@@ -1173,6 +1173,22 @@ For environments (?e): line breaks are added when surrounding partial lines."
           (when (< end line-end)
             (let ((text-after (buffer-substring-no-properties end line-end)))
               (setq env-has-text-after (string-match-p "[^ \t]" text-after)))))))
+    ;; For environment linewise selection: handle trailing newline and indentation
+    (when (and is-env (eq type 'line))
+      (setq env-is-linewise t)
+      ;; Linewise selection includes trailing newline as line marker.
+      ;; Remove only ONE trailing newline (the linewise marker), preserving
+      ;; any blank lines that user intentionally selected.
+      (when (and (> end beg) (eq (char-before end) ?\n))
+        (setq end (1- end)))
+      ;; Use inclusive type to prevent evil-surround from adding extra newlines
+      (setq type 'inclusive)
+      ;; Capture indentation from the first content line for later use
+      (save-excursion
+        (goto-char beg)
+        (setq env-indent (buffer-substring-no-properties
+                          (line-beginning-position)
+                          (progn (back-to-indentation) (point))))))
     ;; For inline math: normalize BEFORE calling orig-fn
     (when is-inline-math
       ;; Save cursor position (line and column)
@@ -1190,46 +1206,33 @@ For environments (?e): line breaks are added when surrounding partial lines."
         (setq type 'inclusive)))
     ;; Call original surround function
     (funcall orig-fn beg end type char force-new-line)
-    ;; For environments: add line breaks when surrounding partial line
-    (when (and is-env (or env-has-text-before env-has-text-after))
+    ;; For environments: add line breaks and let Emacs handle indentation
+    (when (and is-env (or env-has-text-before env-has-text-after env-is-linewise))
       (save-excursion
         (let ((indent (or env-indent ""))
-              (content-indent (concat (or env-indent "") "    ")))  ; 4 spaces extra for content
+              env-start env-end)
           (goto-char beg)
           ;; Find \begin{...}
           (when (search-forward "\\begin{" nil t)
             (let ((begin-start (- (point) 7)))  ; position of backslash
+              (setq env-start begin-start)
               ;; Find end of \begin{...} line (after the closing })
               (search-forward "}" nil t)
-              (let ((begin-end (point)))
-                ;; If there's text before, insert newline before \begin
-                (when env-has-text-before
-                  (goto-char begin-start)
-                  (insert "\n" indent)
-                  ;; Adjust positions after insertion
-                  (setq begin-end (+ begin-end 1 (length indent))))
-                ;; Add indentation to content lines (between \begin{...}\n and \n\end{...})
-                (goto-char begin-end)
-                (when (eq (char-after) ?\n)
-                  (forward-char 1)
-                  ;; We're now at the start of content - add indent
-                  (insert content-indent))))
-            ;; Find \end{...} and add indent before it
-            (goto-char beg)
-            (when (search-forward "\\end{" nil t)
-              (let ((end-start (- (point) 5)))  ; position of backslash
-                ;; Add indent at the beginning of \end line if it's at column 0
-                (save-excursion
-                  (goto-char end-start)
-                  (when (bolp)
-                    (insert indent)))
-                ;; Find the closing } of \end{...}
-                (search-forward "}" nil t)
-                (let ((end-end (point)))
-                  ;; If there's text after, insert newline after \end{...}
-                  (when env-has-text-after
-                    (goto-char end-end)
-                    (insert "\n" indent)))))))))
+              ;; For partial line with text-before: add newline before \begin
+              (when env-has-text-before
+                (goto-char begin-start)
+                (insert "\n"))))
+          ;; Find \end{...}
+          (goto-char beg)
+          (when (search-forward "\\end{" nil t)
+            (search-forward "}" nil t)
+            (setq env-end (point))
+            ;; For partial line with text-after: add newline after \end{...}
+            (when env-has-text-after
+              (insert "\n")))
+          ;; Let Emacs handle indentation for the entire environment
+          (when (and env-start env-end)
+            (indent-region env-start env-end)))))
     ;; For commands: normalize AFTER calling orig-fn (after prompt was shown)
     (when is-command
       (save-excursion

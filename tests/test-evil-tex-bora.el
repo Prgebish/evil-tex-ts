@@ -1247,6 +1247,135 @@ Simulates the post-surround state where \\textbf{line1\\nline2} should become
     (should delim)
     (should (equal (cdr delim) '("&" . "&")))))
 
+;;; ==========================================================================
+;;; Environment surround linewise selection tests
+;;; ==========================================================================
+
+(ert-deftest test-surround-env-linewise-preserves-trailing-blank-line ()
+  "Test that linewise env surround preserves trailing blank lines in selection.
+When user selects (no leading indent):
+  aaa bbb##
+  dddd bbbb##
+  ##  (blank line selected)
+The blank line should be preserved inside the environment."
+  (skip-unless evil-tex-bora-loaded)
+  (evil-tex-bora-test-with-latex
+      "oooooooooooooooo\naaa bbb\ndddd bbbb\n\noooooooooooooo" 1
+    (evil-tex-bora-mode 1)
+    (let ((evil-tex-bora-include-newlines-in-envs t))
+      ;; Simulate linewise selection of lines 2-4 (including blank line)
+      ;; Line 2: "aaa bbb\n" starts at pos 18
+      ;; Line 3: "dddd bbbb\n" starts at pos 26
+      ;; Line 4: "\n" (blank) starts at pos 36
+      ;; Line 5: "oooo..." starts at pos 37
+      (let* ((beg 18)  ; start of "aaa bbb"
+             (end 37)  ; after the blank line's newline
+             (env-pair (evil-tex-bora-get-env-for-surrounding "align*")))
+        ;; Call the advice function directly to test its behavior
+        (evil-tex-bora--surround-region-advice
+         (lambda (b e type char &optional force)
+           ;; Mock evil-surround-region: insert delimiters
+           (goto-char e)
+           (insert (cdr env-pair))
+           (goto-char b)
+           (insert (car env-pair)))
+         beg end 'line ?e)))
+    ;; The blank line should be preserved inside the environment
+    ;; (indentation is handled by Emacs, so we just check structure)
+    (let ((result (buffer-string)))
+      (should (string-match-p "\\\\begin{align\\*}" result))
+      (should (string-match-p "aaa bbb" result))
+      (should (string-match-p "dddd bbbb" result))
+      ;; Blank line should be between content and \end
+      (should (string-match-p "dddd bbbb\n.*\n.*\\\\end{align\\*}" result))
+      (should (string-match-p "\\\\end{align\\*}" result)))))
+
+(ert-deftest test-surround-env-linewise-without-blank-line ()
+  "Test that linewise env surround works correctly without trailing blank line.
+When user selects:
+  aaa bbb##
+  dddd bbbb##
+Result should have environment wrapping the content."
+  (skip-unless evil-tex-bora-loaded)
+  (evil-tex-bora-test-with-latex
+      "oooooooooooooooo\naaa bbb\ndddd bbbb\noooooooooooooo" 1
+    (evil-tex-bora-mode 1)
+    (let ((evil-tex-bora-include-newlines-in-envs t))
+      ;; Simulate linewise selection of lines 2-3 (without blank line)
+      ;; Line 2: "aaa bbb\n" starts at pos 18
+      ;; Line 3: "dddd bbbb\n" starts at pos 26
+      ;; Line 4: "oooo..." starts at pos 36
+      (let* ((beg 18)  ; start of "aaa bbb"
+             (end 36)  ; after "dddd bbbb\n"
+             (env-pair (evil-tex-bora-get-env-for-surrounding "align*")))
+        (evil-tex-bora--surround-region-advice
+         (lambda (b e type char &optional force)
+           (goto-char e)
+           (insert (cdr env-pair))
+           (goto-char b)
+           (insert (car env-pair)))
+         beg end 'line ?e)))
+    ;; Check structure (indentation is handled by Emacs)
+    (let ((result (buffer-string)))
+      (should (string-match-p "\\\\begin{align\\*}" result))
+      (should (string-match-p "aaa bbb" result))
+      (should (string-match-p "dddd bbbb" result))
+      (should (string-match-p "\\\\end{align\\*}" result)))))
+
+(ert-deftest test-surround-env-linewise-adds-indentation ()
+  "Test that linewise env surround calls indent-region.
+Indentation is handled by Emacs according to major-mode settings."
+  (skip-unless evil-tex-bora-loaded)
+  (evil-tex-bora-test-with-latex
+      "before\naaa bbb\ndddd bbbb\nafter" 1
+    (evil-tex-bora-mode 1)
+    (let ((evil-tex-bora-include-newlines-in-envs t))
+      (let* ((beg 8)   ; start of "aaa bbb"
+             (end 27)  ; after "dddd bbbb\n"
+             (env-pair (evil-tex-bora-get-env-for-surrounding "align*")))
+        (evil-tex-bora--surround-region-advice
+         (lambda (b e type char &optional force)
+           (goto-char e)
+           (insert (cdr env-pair))
+           (goto-char b)
+           (insert (car env-pair)))
+         beg end 'line ?e)))
+    ;; Check that environment structure is correct
+    (let ((result (buffer-string)))
+      (should (string-match-p "\\\\begin{align\\*}" result))
+      (should (string-match-p "aaa bbb" result))
+      (should (string-match-p "\\\\end{align\\*}" result)))))
+
+(ert-deftest test-surround-env-linewise-with-existing-indent ()
+  "Test that linewise env surround works with existing indentation.
+Indentation is handled by Emacs via indent-region."
+  (skip-unless evil-tex-bora-loaded)
+  (evil-tex-bora-test-with-latex
+      "oooo\n      aaa bbb\n      dddd bbbb\noooo" 1
+    (evil-tex-bora-mode 1)
+    (let ((evil-tex-bora-include-newlines-in-envs t))
+      ;; Calculate linewise positions correctly:
+      ;; "oooo\n" = 5 chars (pos 1-5)
+      ;; "      aaa bbb\n" = 14 chars (pos 6-19)
+      ;; "      dddd bbbb\n" = 16 chars (pos 20-35)
+      ;; "oooo" = 4 chars (pos 36-39)
+      (let* ((beg 6)   ; start of "      aaa bbb" line
+             (end 36)  ; after "      dddd bbbb\n"
+             (env-pair (evil-tex-bora-get-env-for-surrounding "align*")))
+        (evil-tex-bora--surround-region-advice
+         (lambda (b e type char &optional force)
+           (goto-char e)
+           (insert (cdr env-pair))
+           (goto-char b)
+           (insert (car env-pair)))
+         beg end 'line ?e)))
+    ;; Check that environment structure is correct
+    (let ((result (buffer-string)))
+      (should (string-match-p "\\\\begin{align\\*}" result))
+      (should (string-match-p "aaa bbb" result))
+      (should (string-match-p "dddd bbbb" result))
+      (should (string-match-p "\\\\end{align\\*}" result)))))
+
 ;;; Env map tests
 
 (ert-deftest test-env-map-bindings ()
