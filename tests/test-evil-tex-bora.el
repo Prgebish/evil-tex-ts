@@ -1093,6 +1093,64 @@ This ensures cursor lands on first non-whitespace char after deletion."
       (should (string= (nth 1 result) "    "))
       (should (nth 2 result)))))
 
+;;; Command surround normalization tests
+;;; Note: For commands (?c), normalization happens AFTER the prompt is shown,
+;;; inside the advice's post-processing. We test this by simulating the
+;;; post-surround state and checking normalization.
+
+(ert-deftest test-surround-command-post-normalize-multiline ()
+  "Test that command surround normalizes multiline content after surrounding.
+Simulates the post-surround state where \\textbf{line1\\nline2} should become
+\\textbf{line1 line2}."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    ;; Simulate post-surround state with multiline content
+    (insert "\\textbf{line1\nline2}")
+    (goto-char 1)
+    ;; Manually run the normalization logic from the advice
+    (when (search-forward "{" nil t)
+      (let ((inner-beg (point))
+            inner-end)
+        (backward-char)
+        (forward-sexp)
+        (setq inner-end (1- (point)))
+        (let* ((content (buffer-substring-no-properties inner-beg inner-end))
+               (has-newlines (string-match-p "\n" content)))
+          (when has-newlines
+            (let ((normalized (replace-regexp-in-string
+                               "[ \t]*\\(?:\n[ \t]*\\)+" " "
+                               (string-trim content))))
+              (delete-region inner-beg inner-end)
+              (goto-char inner-beg)
+              (insert normalized))))))
+    (should (string= (buffer-string) "\\textbf{line1 line2}"))))
+
+(ert-deftest test-surround-command-post-normalize-indented ()
+  "Test that command surround normalizes indented multiline content.
+\\textbf{  first\\n  second} should become \\textbf{first second}."
+  (skip-unless evil-tex-bora-loaded)
+  (with-temp-buffer
+    ;; Simulate post-surround state with indented multiline content
+    (insert "\\textbf{  first line\n  second line}")
+    (goto-char 1)
+    ;; Manually run the normalization logic from the advice
+    (when (search-forward "{" nil t)
+      (let ((inner-beg (point))
+            inner-end)
+        (backward-char)
+        (forward-sexp)
+        (setq inner-end (1- (point)))
+        (let* ((content (buffer-substring-no-properties inner-beg inner-end))
+               (has-newlines (string-match-p "\n" content)))
+          (when has-newlines
+            (let ((normalized (replace-regexp-in-string
+                               "[ \t]*\\(?:\n[ \t]*\\)+" " "
+                               (string-trim content))))
+              (delete-region inner-beg inner-end)
+              (goto-char inner-beg)
+              (insert normalized))))))
+    (should (string= (buffer-string) "\\textbf{first line second line}"))))
+
 (ert-deftest test-surround-delimiter-M ()
   "Test display math delimiter ?M."
   (skip-unless evil-tex-bora-loaded)

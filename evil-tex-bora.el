@@ -1140,13 +1140,19 @@ Returns (NEW-END INDENT-STRING HAD-TRAILING-NEWLINE)."
         (list end indent-string had-trailing-newline)))))
 
 (defun evil-tex-bora--surround-region-advice (orig-fn beg end type char &optional force-new-line)
-  "Advice for `evil-surround-region' to normalize inline math regions.
-Normalizes the region (trims and collapses newlines) when surrounding with inline math.
-For linewise selections, changes type to `inclusive' to prevent evil-surround from
-adding extra newlines."
-  (let (indent-string had-trailing-newline content-length original-col original-line)
-    (when (and evil-tex-bora-mode
-               (eq char ?m))
+  "Advice for `evil-surround-region' to normalize regions for inline math and commands.
+Normalizes the region (trims and collapses newlines) when surrounding with inline math
+or commands. For linewise selections, changes type to `inclusive' to prevent
+evil-surround from adding extra newlines.
+
+For inline math (?m): normalization happens BEFORE surrounding.
+For commands (?c): normalization happens AFTER surrounding (after prompt)."
+  (let (indent-string had-trailing-newline content-length original-col original-line
+        is-inline-math is-command)
+    (setq is-inline-math (and evil-tex-bora-mode (eq char ?m)))
+    (setq is-command (and evil-tex-bora-mode (eq char ?c)))
+    ;; For inline math: normalize BEFORE calling orig-fn
+    (when is-inline-math
       ;; Save cursor position (line and column)
       (setq original-line (line-number-at-pos))
       (setq original-col (current-column))
@@ -1156,15 +1162,36 @@ adding extra newlines."
         (setq had-trailing-newline (nth 2 result))
         ;; Calculate content length (from beg to new end)
         (setq content-length (- end beg)))
-      ;; For inline math, force inclusive type to prevent evil-surround from
+      ;; Force inclusive type to prevent evil-surround from
       ;; adding newlines around the content (linewise behavior)
       (when (eq type 'line)
         (setq type 'inclusive)))
     ;; Call original surround function
     (funcall orig-fn beg end type char force-new-line)
-    ;; Post-process: add indent before and newline after the surround delimiters
-    (when (and evil-tex-bora-mode
-               (eq char ?m))
+    ;; For commands: normalize AFTER calling orig-fn (after prompt was shown)
+    (when is-command
+      (save-excursion
+        (goto-char beg)
+        ;; Find the opening { of the command
+        (when (search-forward "{" nil t)
+          (let ((inner-beg (point))
+                inner-end)
+            ;; Find the matching closing }
+            (backward-char)
+            (forward-sexp)
+            (setq inner-end (1- (point)))
+            ;; Normalize content if it has newlines
+            (let* ((content (buffer-substring-no-properties inner-beg inner-end))
+                   (has-newlines (string-match-p "\n" content)))
+              (when has-newlines
+                (let ((normalized (replace-regexp-in-string
+                                   "[ \t]*\\(?:\n[ \t]*\\)+" " "
+                                   (string-trim content))))
+                  (delete-region inner-beg inner-end)
+                  (goto-char inner-beg)
+                  (insert normalized))))))))
+    ;; Post-process for inline math: add indent before and newline after
+    (when is-inline-math
       (let ((delim-pair (evil-tex-bora--surround-inline-math)))
         (save-excursion
           ;; Add trailing newline after the closing delimiter FIRST
