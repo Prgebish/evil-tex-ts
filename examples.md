@@ -167,23 +167,121 @@ Also works with other commands that support asterisk variants:
 
 ## Surround
 
-### Add environment
+Requires [evil-surround](https://github.com/emacs-evil/evil-surround) package.
 
+### Surround Keys
+
+| Key | Surrounds with | Example |
+|-----|---------------|---------|
+| `m` | `\(...\)` | `ysiwm` → `\(word\)` |
+| `M` | `\[...\]` | `ysiwM` → `\[word\]` |
+| `c` | Command (prompts) | `ysiwc textbf` → `\textbf{word}` |
+| `e` | Environment (keymap) | `ysiwe e` → `\begin{equation}word\end{equation}` |
+| `d` | Delimiter (keymap) | `ysiwd p` → `\left(word\right)` |
+| `;` | CDLaTeX accent (keymap) | `ysiw; b` → `\textbf{word}` |
+| `q` | Single quote | `ysiwq` → `` `word' `` |
+| `Q` | Double quote | `ysiwQ` → ``` ``word'' ``` |
+| `^` | Superscript | `ysiw^` → `^{word}` |
+| `_` | Subscript | `ysiw_` → `_{word}` |
+| `T` | Table cell | `ysiwT` → `&word&` |
+
+### Environment Keymap (e)
+
+When using `e` for environment surround, a keymap is shown:
+
+| Key | Environment |
+|-----|-------------|
+| `x` | Prompt for name |
+| `e` | equation |
+| `E` | equation* |
+| `a` | align |
+| `A` | align* |
+| `f` | figure |
+| `i` | itemize |
+| `I` | enumerate |
+| `c` | cases |
+| `g` | gather |
+| `m` | multline |
+| `z` | tikzpicture |
+| `ta` | axiom |
+| `tt` | theorem |
+| `tl` | lemma |
+| `tp` | proof |
+| `td` | definition |
+
+### Delimiter Keymap (d)
+
+| Key | Delimiter |
+|-----|-----------|
+| `P` | `()` |
+| `p` | `\left(\right)` |
+| `S` | `[]` |
+| `s` | `\left[\right]` |
+| `C` | `\{\}` |
+| `c` | `\left\{\right\}` |
+| `R` | `\langle \rangle` |
+| `r` | `\left\langle \right\rangle` |
+| `V` | `\lvert \rvert` |
+| `v` | `\left\lvert\right\rvert` |
+| `N` | `\lVert \rVert` |
+| `n` | `\left\lVert\right\rVert` |
+
+### CDLaTeX Accents Keymap (;)
+
+Context-aware: uses `\mathbf` in math, `\textbf` outside.
+
+| Key | Accent | Key | Accent |
+|-----|--------|-----|--------|
+| `.` | dot | `~` | tilde |
+| `^` | hat | `-` | bar |
+| `T` | overline | `_` | underline |
+| `{` | overbrace | `}` | underbrace |
+| `>` | vec | `q` | sqrt |
+| `r` | rm | `i` | it |
+| `b` | bf | `e` | emph |
+| `y` | tt | `f` | sf |
+| `c` | mathcal | | |
+
+### Examples
+
+**Add environment:**
 ```
 ysiwe equation
 ```
 Wraps word in `\begin{equation}...\end{equation}`
 
-### Change surrounding
-
+**Change surrounding:**
 ```
 csee align
 ```
 Changes environment to `align`
 
-### Delete surrounding
-
+**Delete surrounding:**
 ```
 dsm
 ```
 Deletes surrounding math delimiters
+
+**Add inline math:**
+```
+ysiwm
+```
+Wraps word in `\(...\)`
+
+**Add command:**
+```
+ysiwc textbf<CR>
+```
+Wraps word in `\textbf{...}`
+
+**Add delimiter with sizing:**
+```
+ysiwd p
+```
+Wraps in `\left(...\right)`
+
+**Add accent:**
+```
+ysiw; b
+```
+Wraps in `\textbf{...}` (or `\mathbf{...}` in math)

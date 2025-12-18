@@ -856,5 +856,303 @@ This ensures cursor lands on first non-whitespace char after deletion."
     (evil-tex-bora-toggle-cmd-asterisk)
     (should (string= (buffer-string) "\\subsection*{Intro}"))))
 
+;;; ==========================================================================
+;;; Surround integration tests (Phase 4)
+;;; ==========================================================================
+
+;;; Basic function existence tests
+
+(ert-deftest test-surround-functions-exist ()
+  "Test that surround-related functions are defined."
+  (skip-unless evil-tex-bora-loaded)
+  ;; Format functions
+  (should (fboundp 'evil-tex-bora-get-env-for-surrounding))
+  (should (fboundp 'evil-tex-bora--format-command-for-surrounding))
+  (should (fboundp 'evil-tex-bora--format-accent-for-surrounding))
+  ;; Prompt functions
+  (should (fboundp 'evil-tex-bora-surround-env-prompt))
+  (should (fboundp 'evil-tex-bora-surround-command-prompt))
+  (should (fboundp 'evil-tex-bora-surround-delim-prompt))
+  (should (fboundp 'evil-tex-bora-surround-cdlatex-accents-prompt))
+  ;; Setup functions
+  (should (fboundp 'evil-tex-bora-set-up-surround))
+  (should (fboundp 'evil-tex-bora-set-up-embrace))
+  ;; Bind functions
+  (should (fboundp 'evil-tex-bora-bind-to-env-map))
+  (should (fboundp 'evil-tex-bora-bind-to-delim-map))
+  (should (fboundp 'evil-tex-bora-bind-to-cdlatex-accents-map)))
+
+(ert-deftest test-surround-keymaps-exist ()
+  "Test that surround keymaps are defined."
+  (skip-unless evil-tex-bora-loaded)
+  (should (keymapp evil-tex-bora-env-map))
+  (should (keymapp evil-tex-bora-delim-map))
+  (should (keymapp evil-tex-bora-cdlatex-accents-map))
+  (should (keymapp evil-tex-bora-inner-text-objects-map))
+  (should (keymapp evil-tex-bora-outer-text-objects-map)))
+
+(ert-deftest test-surround-delimiters-exist ()
+  "Test that surround delimiters alist is defined."
+  (skip-unless evil-tex-bora-loaded)
+  (should (boundp 'evil-tex-bora-surround-delimiters))
+  (should (listp evil-tex-bora-surround-delimiters))
+  ;; Check specific delimiters
+  (should (assq ?m evil-tex-bora-surround-delimiters))
+  (should (assq ?M evil-tex-bora-surround-delimiters))
+  (should (assq ?c evil-tex-bora-surround-delimiters))
+  (should (assq ?e evil-tex-bora-surround-delimiters))
+  (should (assq ?d evil-tex-bora-surround-delimiters))
+  (should (assq ?\; evil-tex-bora-surround-delimiters))
+  (should (assq ?q evil-tex-bora-surround-delimiters))
+  (should (assq ?Q evil-tex-bora-surround-delimiters))
+  (should (assq ?^ evil-tex-bora-surround-delimiters))
+  (should (assq ?_ evil-tex-bora-surround-delimiters)))
+
+;;; Format function tests
+
+(ert-deftest test-get-env-for-surrounding-with-newlines ()
+  "Test env format with newlines enabled."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((evil-tex-bora-include-newlines-in-envs t))
+    (let ((result (evil-tex-bora-get-env-for-surrounding "equation")))
+      (should (consp result))
+      (should (string= (car result) "\\begin{equation}\n"))
+      (should (string= (cdr result) "\n\\end{equation}")))))
+
+(ert-deftest test-get-env-for-surrounding-without-newlines ()
+  "Test env format without newlines."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((evil-tex-bora-include-newlines-in-envs nil))
+    (let ((result (evil-tex-bora-get-env-for-surrounding "equation")))
+      (should (consp result))
+      (should (string= (car result) "\\begin{equation}"))
+      (should (string= (cdr result) "\\end{equation}")))))
+
+(ert-deftest test-format-accent-for-surrounding ()
+  "Test accent format function."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((result (evil-tex-bora--format-accent-for-surrounding "dot")))
+    (should (consp result))
+    (should (string= (car result) "\\dot{"))
+    (should (string= (cdr result) "}"))))
+
+(ert-deftest test-format-command-for-surrounding-non-empty ()
+  "Test command format for non-empty command."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((evil-tex-bora--last-command-empty nil))
+    (let ((result (evil-tex-bora--format-command-for-surrounding "textbf")))
+      (should (consp result))
+      (should (string= (car result) "\\textbf{"))
+      (should (string= (cdr result) "}")))))
+
+(ert-deftest test-format-command-for-surrounding-empty ()
+  "Test command format for empty command (like \\alpha)."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((evil-tex-bora--last-command-empty t))
+    (let ((result (evil-tex-bora--format-command-for-surrounding "alpha")))
+      (should (consp result))
+      (should (string= (car result) "\\alpha"))
+      (should (string= (cdr result) "")))))
+
+;;; Surround delimiters content tests
+
+(ert-deftest test-surround-delimiter-m ()
+  "Test inline math delimiter ?m."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((delim (assq ?m evil-tex-bora-surround-delimiters)))
+    (should delim)
+    (should (equal (cdr delim) '("\\(" . "\\)")))))
+
+(ert-deftest test-surround-delimiter-M ()
+  "Test display math delimiter ?M."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((delim (assq ?M evil-tex-bora-surround-delimiters)))
+    (should delim)
+    (should (equal (cdr delim) '("\\[" . "\\]")))))
+
+(ert-deftest test-surround-delimiter-q ()
+  "Test single quote delimiter ?q."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((delim (assq ?q evil-tex-bora-surround-delimiters)))
+    (should delim)
+    (should (equal (cdr delim) '("`" . "'")))))
+
+(ert-deftest test-surround-delimiter-Q ()
+  "Test double quote delimiter ?Q."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((delim (assq ?Q evil-tex-bora-surround-delimiters)))
+    (should delim)
+    (should (equal (cdr delim) '("``" . "''")))))
+
+(ert-deftest test-surround-delimiter-superscript ()
+  "Test superscript delimiter ?^."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((delim (assq ?^ evil-tex-bora-surround-delimiters)))
+    (should delim)
+    (should (equal (cdr delim) '("^{" . "}")))))
+
+(ert-deftest test-surround-delimiter-subscript ()
+  "Test subscript delimiter ?_."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((delim (assq ?_ evil-tex-bora-surround-delimiters)))
+    (should delim)
+    (should (equal (cdr delim) '("_{" . "}")))))
+
+(ert-deftest test-surround-delimiter-table-cell ()
+  "Test table cell delimiter ?T."
+  (skip-unless evil-tex-bora-loaded)
+  (let ((delim (assq ?T evil-tex-bora-surround-delimiters)))
+    (should delim)
+    (should (equal (cdr delim) '("&" . "&")))))
+
+;;; Env map tests
+
+(ert-deftest test-env-map-bindings ()
+  "Test that env-map has expected bindings."
+  (skip-unless evil-tex-bora-loaded)
+  ;; Common environments should be bound
+  (should (lookup-key evil-tex-bora-env-map "e"))
+  (should (lookup-key evil-tex-bora-env-map "E"))
+  (should (lookup-key evil-tex-bora-env-map "a"))
+  (should (lookup-key evil-tex-bora-env-map "A"))
+  (should (lookup-key evil-tex-bora-env-map "f"))
+  (should (lookup-key evil-tex-bora-env-map "i"))
+  (should (lookup-key evil-tex-bora-env-map "x")))
+
+(ert-deftest test-env-map-theorem-prefix ()
+  "Test that theorem environments use 't' prefix."
+  (skip-unless evil-tex-bora-loaded)
+  ;; ta -> axiom, tt -> theorem, etc.
+  (should (lookup-key evil-tex-bora-env-map "ta"))
+  (should (lookup-key evil-tex-bora-env-map "tt"))
+  (should (lookup-key evil-tex-bora-env-map "tl"))
+  (should (lookup-key evil-tex-bora-env-map "tp")))
+
+;;; Delim map tests
+
+(ert-deftest test-delim-map-bindings ()
+  "Test that delim-map has expected bindings."
+  (skip-unless evil-tex-bora-loaded)
+  ;; Parentheses
+  (should (lookup-key evil-tex-bora-delim-map "P"))
+  (should (lookup-key evil-tex-bora-delim-map "p"))
+  ;; Brackets
+  (should (lookup-key evil-tex-bora-delim-map "S"))
+  (should (lookup-key evil-tex-bora-delim-map "s"))
+  ;; Braces
+  (should (lookup-key evil-tex-bora-delim-map "C"))
+  (should (lookup-key evil-tex-bora-delim-map "c"))
+  ;; Angle brackets
+  (should (lookup-key evil-tex-bora-delim-map "R"))
+  (should (lookup-key evil-tex-bora-delim-map "r"))
+  ;; Absolute value / norm
+  (should (lookup-key evil-tex-bora-delim-map "v"))
+  (should (lookup-key evil-tex-bora-delim-map "V"))
+  (should (lookup-key evil-tex-bora-delim-map "n"))
+  (should (lookup-key evil-tex-bora-delim-map "N")))
+
+;;; CDLaTeX accents map tests
+
+(ert-deftest test-cdlatex-accents-map-bindings ()
+  "Test that cdlatex accents map has expected bindings."
+  (skip-unless evil-tex-bora-loaded)
+  ;; Common accents
+  (should (lookup-key evil-tex-bora-cdlatex-accents-map "."))
+  (should (lookup-key evil-tex-bora-cdlatex-accents-map "~"))
+  (should (lookup-key evil-tex-bora-cdlatex-accents-map "^"))
+  (should (lookup-key evil-tex-bora-cdlatex-accents-map "-"))
+  ;; Text styles
+  (should (lookup-key evil-tex-bora-cdlatex-accents-map "r"))
+  (should (lookup-key evil-tex-bora-cdlatex-accents-map "i"))
+  (should (lookup-key evil-tex-bora-cdlatex-accents-map "b"))
+  ;; Math styles
+  (should (lookup-key evil-tex-bora-cdlatex-accents-map "c"))
+  (should (lookup-key evil-tex-bora-cdlatex-accents-map "q")))
+
+;;; texmathp tests (tree-sitter based)
+
+(ert-deftest test-texmathp-in-math ()
+  "Test texmathp inside math environment."
+  (evil-tex-bora-test-with-latex "\\(x + y\\)" 4
+    (should (evil-tex-bora--texmathp))))
+
+(ert-deftest test-texmathp-outside-math ()
+  "Test texmathp outside math environment."
+  (evil-tex-bora-test-with-latex "text \\(x\\) more" 2
+    (should-not (evil-tex-bora--texmathp))))
+
+(ert-deftest test-texmathp-in-display-math ()
+  "Test texmathp inside display math."
+  (evil-tex-bora-test-with-latex "\\[x + y\\]" 4
+    (should (evil-tex-bora--texmathp))))
+
+(ert-deftest test-texmathp-in-equation-env ()
+  "Test texmathp inside equation environment."
+  (evil-tex-bora-test-with-latex "\\begin{equation}x\\end{equation}" 18
+    (should (evil-tex-bora--texmathp))))
+
+;;; Context-aware accent functions tests
+
+(ert-deftest test-accent-rm-in-math ()
+  "Test rm accent returns mathrm in math context."
+  (evil-tex-bora-test-with-latex "\\(x\\)" 3
+    (let ((result (evil-tex-bora-cdlatex-accents---rm)))
+      (should (string= (car result) "\\mathrm{")))))
+
+(ert-deftest test-accent-rm-outside-math ()
+  "Test rm accent returns textrm outside math."
+  (evil-tex-bora-test-with-latex "text" 2
+    (let ((result (evil-tex-bora-cdlatex-accents---rm)))
+      (should (string= (car result) "\\textrm{")))))
+
+(ert-deftest test-accent-bf-in-math ()
+  "Test bf accent returns mathbf in math context."
+  (evil-tex-bora-test-with-latex "\\(x\\)" 3
+    (let ((result (evil-tex-bora-cdlatex-accents---bf)))
+      (should (string= (car result) "\\mathbf{")))))
+
+(ert-deftest test-accent-bf-outside-math ()
+  "Test bf accent returns textbf outside math."
+  (evil-tex-bora-test-with-latex "text" 2
+    (let ((result (evil-tex-bora-cdlatex-accents---bf)))
+      (should (string= (car result) "\\textbf{")))))
+
+(ert-deftest test-accent-it-in-math ()
+  "Test it accent returns mathit in math context."
+  (evil-tex-bora-test-with-latex "\\(x\\)" 3
+    (let ((result (evil-tex-bora-cdlatex-accents---it)))
+      (should (string= (car result) "\\mathit{")))))
+
+(ert-deftest test-accent-tt-in-math ()
+  "Test tt accent returns mathtt in math context."
+  (evil-tex-bora-test-with-latex "\\(x\\)" 3
+    (let ((result (evil-tex-bora-cdlatex-accents---tt)))
+      (should (string= (car result) "\\mathtt{")))))
+
+;;; Text object map population tests
+
+(ert-deftest test-inner-text-objects-map-populated ()
+  "Test that inner text objects map is populated."
+  (skip-unless evil-tex-bora-loaded)
+  (should (lookup-key evil-tex-bora-inner-text-objects-map "e"))
+  (should (lookup-key evil-tex-bora-inner-text-objects-map "c"))
+  (should (lookup-key evil-tex-bora-inner-text-objects-map "m"))
+  (should (lookup-key evil-tex-bora-inner-text-objects-map "d")))
+
+(ert-deftest test-outer-text-objects-map-populated ()
+  "Test that outer text objects map is populated."
+  (skip-unless evil-tex-bora-loaded)
+  (should (lookup-key evil-tex-bora-outer-text-objects-map "e"))
+  (should (lookup-key evil-tex-bora-outer-text-objects-map "c"))
+  (should (lookup-key evil-tex-bora-outer-text-objects-map "m"))
+  (should (lookup-key evil-tex-bora-outer-text-objects-map "d")))
+
+;;; Customization tests
+
+(ert-deftest test-include-newlines-customization ()
+  "Test that include-newlines customization exists."
+  (skip-unless evil-tex-bora-loaded)
+  (should (boundp 'evil-tex-bora-include-newlines-in-envs)))
+
 (provide 'test-evil-tex-bora)
 ;;; test-evil-tex-bora.el ends here

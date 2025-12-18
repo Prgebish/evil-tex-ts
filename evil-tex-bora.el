@@ -100,6 +100,25 @@ determines which format to use.
                  (const :tag "\\(...\\)" paren))
   :group 'evil-tex-bora)
 
+(defcustom evil-tex-bora-include-newlines-in-envs t
+  "Whether include newlines with env insertion via surround.
+
+When non-nil, env insertions would force separate lines for
+\\begin, inner text, and \\end."
+  :type 'boolean
+  :group 'evil-tex-bora)
+
+;;; Evil-surround integration declarations
+
+(defvar evil-surround-pairs-alist)
+(defvar evil-surround-local-inner-text-object-map-list)
+(defvar evil-surround-local-outer-text-object-map-list)
+(defvar evil-embrace-evil-surround-keys)
+(defvar which-key-idle-delay)
+(defvar which-key-replacement-alist)
+(declare-function which-key--hide-popup "ext:which-key")
+(declare-function which-key--show-keymap "ext:which-key")
+
 ;;; Tree-sitter utilities
 
 (defun evil-tex-bora--ensure-parser ()
@@ -977,6 +996,378 @@ The asterisk is placed between the command name and its arguments."
          (t
           (insert "*")))))))
 
+;;; Evil-surround integration
+
+(defun evil-tex-bora--populate-surround-keymap (keymap generator-alist prefix
+                                                       single-strings-fn &optional cons-fn)
+  "Populate KEYMAP with keys and callbacks from GENERATOR-ALIST.
+
+Each item in GENERATOR-ALIST is a cons (KEY . VALUE).  KEY is a string, VALUE can be:
+- A string: call SINGLE-STRINGS-FN with it
+- A cons of strings: call CONS-FN with it (or just return it if CONS-FN is nil)
+- A function: bind directly
+
+PREFIX is used to name generated functions.
+Return KEYMAP."
+  (dolist (pair generator-alist)
+    (let ((key (car pair))
+          (val (cdr pair))
+          name)
+      (cond
+       ((stringp val)
+        (setq name (intern (concat prefix val)))
+        (fset name (lambda () (interactive) (funcall single-strings-fn val)))
+        (define-key keymap key name))
+       ((consp val)
+        (setq name (intern (concat prefix (car val))))
+        (if cons-fn
+            (fset name (lambda () (interactive) (funcall cons-fn val)))
+          (fset name (lambda () (interactive) val)))
+        (define-key keymap key name))
+       ((or (functionp val) (not val))
+        (define-key keymap key val)))))
+  keymap)
+
+(defun evil-tex-bora--read-with-keymap (keymap)
+  "Prompt the user to press a key from KEYMAP.
+Return the result of the called function, or error if key not found."
+  (let (key map-result)
+    (when (require 'which-key nil t)
+      (run-with-idle-timer
+       which-key-idle-delay nil
+       (lambda () (unless key
+                    (which-key--show-keymap nil keymap nil nil t)))))
+    (setq key (string (read-char)))
+    (when (functionp #'which-key--hide-popup)
+      (which-key--hide-popup))
+    (setq map-result (lookup-key keymap key))
+    (cond
+     ((or (not map-result) (numberp map-result))
+      (user-error "%s not found in keymap" key))
+     ((functionp map-result)
+      (call-interactively map-result))
+     ((keymapp map-result)
+      (evil-tex-bora--read-with-keymap map-result)))))
+
+;; Format functions for surround
+
+(defun evil-tex-bora-get-env-for-surrounding (env-name)
+  "Format strings for the env named ENV-NAME for surrounding.
+Return a cons of (\"\\begin{ENV-NAME}\" . \"\\end{ENV-NAME}\").
+Respect the value of `evil-tex-bora-include-newlines-in-envs'."
+  (interactive (list (read-from-minibuffer "env: " nil minibuffer-local-ns-map)))
+  (cons (format "\\begin{%s}%s"
+                env-name
+                (if evil-tex-bora-include-newlines-in-envs "\n" ""))
+        (format "%s\\end{%s}"
+                (if evil-tex-bora-include-newlines-in-envs "\n" "")
+                env-name)))
+
+(defun evil-tex-bora--format-env-cons-for-surrounding (env-cons)
+  "Format ENV-CONS for surrounding.
+Add newlines if `evil-tex-bora-include-newlines-in-envs' is t."
+  (if evil-tex-bora-include-newlines-in-envs
+      (cons (concat (car env-cons) "\n") (concat "\n" (cdr env-cons)))
+    env-cons))
+
+(defun evil-tex-bora--format-accent-for-surrounding (accent)
+  "Format ACCENT for surrounding: return a cons of (\\ACCENT{ . })."
+  (cons (concat "\\" accent "{") "}"))
+
+(defvar evil-tex-bora--last-command-empty nil
+  "Non-nil if the last command text object used was empty.
+For example, \\alpha is empty, \\frac{a}{b} is not.")
+
+(defun evil-tex-bora--format-command-for-surrounding (command)
+  "Format COMMAND for surrounding: return a cons of (\\COMMAND{ . })."
+  (if evil-tex-bora--last-command-empty
+      (cons (concat "\\" command "") "")
+    (cons (concat "\\" command "{") "}")))
+
+;; Environment keymap for surround
+
+(defvar evil-tex-bora-env-map (make-sparse-keymap)
+  "Keymap for surrounding with environments.")
+
+(defun evil-tex-bora-bind-to-env-map (key-generator-alist &optional keymap)
+  "Bind envs from KEY-GENERATOR-ALIST to `evil-tex-bora-env-map' or KEYMAP.
+
+Each item is a cons (KEY . VALUE):
+- String VALUE: inserted env with that name
+- Cons VALUE: text wrapped between car and cdr
+- Function VALUE: called to get the cons"
+  (evil-tex-bora--populate-surround-keymap
+   (or keymap evil-tex-bora-env-map)
+   key-generator-alist
+   "evil-tex-bora-envs---"
+   #'evil-tex-bora-get-env-for-surrounding
+   #'evil-tex-bora--format-env-cons-for-surrounding))
+
+(setq evil-tex-bora-env-map
+      (let ((keymap (make-sparse-keymap)))
+        (evil-tex-bora-bind-to-env-map
+         '(("x" . evil-tex-bora-get-env-for-surrounding)
+           ("e" . "equation")
+           ("E" . "equation*")
+           ("f" . "figure")
+           ("i" . "itemize")
+           ("I" . "enumerate")
+           ("b" . "frame")
+           ("a" . "align")
+           ("A" . "align*")
+           ("y" . "array")
+           ("n" . "alignat")
+           ("N" . "alignat*")
+           ("r" . "eqnarray")
+           ("l" . "flalign")
+           ("L" . "flalign*")
+           ("g" . "gather")
+           ("G" . "gather*")
+           ("m" . "multline")
+           ("M" . "multline*")
+           ("c" . "cases")
+           ("z" . "tikzpicture")
+           ;; prefix t - theorems
+           ("ta" . "axiom")
+           ("tc" . "corollary")
+           ("tC" . "claim")
+           ("td" . "definition")
+           ("te" . "examples")
+           ("ts" . "exercise")
+           ("tl" . "lemma")
+           ("tp" . "proof")
+           ("tq" . "question")
+           ("tr" . "remark")
+           ("tt" . "theorem"))
+         keymap)
+        keymap))
+
+;; CDLaTeX accents keymap for surround
+
+(defun evil-tex-bora--texmathp ()
+  "Return non-nil if point is inside a math environment.
+Uses tree-sitter to check for math context."
+  (when-let* ((node (evil-tex-bora--get-node-at-point)))
+    (evil-tex-bora--find-parent-by-type
+     node '("inline_formula" "displayed_equation" "math_environment"))))
+
+(defun evil-tex-bora-cdlatex-accents---rm ()
+  "Return surround pair for rm style text."
+  (interactive)
+  (if (evil-tex-bora--texmathp)
+      '("\\mathrm{" . "}")
+    '("\\textrm{" . "}")))
+
+(defun evil-tex-bora-cdlatex-accents---it ()
+  "Return surround pair for italic style text."
+  (interactive)
+  (if (evil-tex-bora--texmathp)
+      '("\\mathit{" . "}")
+    '("\\textit{" . "}")))
+
+(defun evil-tex-bora-cdlatex-accents---bf ()
+  "Return surround pair for bold style text."
+  (interactive)
+  (if (evil-tex-bora--texmathp)
+      '("\\mathbf{" . "}")
+    '("\\textbf{" . "}")))
+
+(defun evil-tex-bora-cdlatex-accents---emph ()
+  "Return surround pair for emphasized text."
+  (interactive)
+  (if (evil-tex-bora--texmathp)
+      '("\\mathem{" . "}")
+    '("\\emph{" . "}")))
+
+(defun evil-tex-bora-cdlatex-accents---tt ()
+  "Return surround pair for typewriter style text."
+  (interactive)
+  (if (evil-tex-bora--texmathp)
+      '("\\mathtt{" . "}")
+    '("\\texttt{" . "}")))
+
+(defun evil-tex-bora-cdlatex-accents---sf ()
+  "Return surround pair for sans-serif style text."
+  (interactive)
+  (if (evil-tex-bora--texmathp)
+      '("\\mathsf{" . "}")
+    '("\\textsf{" . "}")))
+
+(defvar evil-tex-bora-cdlatex-accents-map (make-sparse-keymap)
+  "Keymap for surrounding with cdlatex-style accents.")
+
+(defun evil-tex-bora-bind-to-cdlatex-accents-map (key-generator-alist &optional keymap)
+  "Bind accent macros from KEY-GENERATOR-ALIST to `evil-tex-bora-cdlatex-accents-map'."
+  (evil-tex-bora--populate-surround-keymap
+   (or keymap evil-tex-bora-cdlatex-accents-map)
+   key-generator-alist
+   "evil-tex-bora-cdlatex-accents---"
+   #'evil-tex-bora--format-accent-for-surrounding))
+
+(setq evil-tex-bora-cdlatex-accents-map
+      (let ((keymap (make-sparse-keymap)))
+        (evil-tex-bora-bind-to-cdlatex-accents-map
+         '(("." . "dot")
+           (":" . "ddot")
+           ("~" . "tilde")
+           ("N" . "widetilde")
+           ("^" . "hat")
+           ("H" . "widehat")
+           ("-" . "bar")
+           ("T" . "overline")
+           ("_" . "underline")
+           ("{" . "overbrace")
+           ("}" . "underbrace")
+           (">" . "vec")
+           ("/" . "grave")
+           ("\"" . "acute")
+           ("v" . "check")
+           ("u" . "breve")
+           ("m" . "mbox")
+           ("c" . "mathcal")
+           ("q" . "sqrt")
+           ("r" . evil-tex-bora-cdlatex-accents---rm)
+           ("i" . evil-tex-bora-cdlatex-accents---it)
+           ("l" . "textsl")
+           ("b" . evil-tex-bora-cdlatex-accents---bf)
+           ("e" . evil-tex-bora-cdlatex-accents---emph)
+           ("y" . evil-tex-bora-cdlatex-accents---tt)
+           ("f" . evil-tex-bora-cdlatex-accents---sf)
+           ("0" . ("{\\textstyle " . "}"))
+           ("1" . ("{\\displaystyle " . "}"))
+           ("2" . ("{\\scriptstyle " . "}"))
+           ("3" . ("{\\scriptscriptstyle " . "}")))
+         keymap)
+        keymap))
+
+;; Delimiter keymap for surround
+
+(defvar evil-tex-bora-delim-map (make-sparse-keymap)
+  "Keymap for surrounding with delimiters.")
+
+(defun evil-tex-bora-bind-to-delim-map (key-generator-alist &optional keymap)
+  "Bind delimiters from KEY-GENERATOR-ALIST to `evil-tex-bora-delim-map'."
+  (evil-tex-bora--populate-surround-keymap
+   (or keymap evil-tex-bora-delim-map)
+   key-generator-alist
+   "evil-tex-bora-delims---"
+   #'identity))
+
+(setq evil-tex-bora-delim-map
+      (let ((keymap (make-sparse-keymap)))
+        (evil-tex-bora-bind-to-delim-map
+         '(("P" "(" . ")")
+           ("p" "\\left(" . "\\right)")
+           ("S" "[" . "]")
+           ("s" "\\left[" . "\\right]")
+           ("C" "\\{" . "\\}")
+           ("c" "\\left\\{" . "\\right\\}")
+           ("R" "\\langle " . "\\rangle")
+           ("r" "\\left\\langle " . "\\right\\rangle")
+           ("v" "\\left\\lvert" . "\\right\\rvert")
+           ("V" "\\lvert" . "\\rvert")
+           ("n" "\\left\\lVert" . "\\right\\rVert")
+           ("N" "\\lVert" . "\\rVert"))
+         keymap)
+        keymap))
+
+;; Prompt functions for surround
+
+(defun evil-tex-bora-surround-env-prompt ()
+  "Prompt user for an env to surround with using `evil-tex-bora-env-map'."
+  (evil-tex-bora--read-with-keymap evil-tex-bora-env-map))
+
+(defun evil-tex-bora-surround-cdlatex-accents-prompt ()
+  "Prompt user for an accent to surround with using `evil-tex-bora-cdlatex-accents-map'."
+  (evil-tex-bora--read-with-keymap evil-tex-bora-cdlatex-accents-map))
+
+(defun evil-tex-bora-surround-delim-prompt ()
+  "Prompt user for a delimiter to surround with using `evil-tex-bora-delim-map'."
+  (evil-tex-bora--read-with-keymap evil-tex-bora-delim-map))
+
+(defun evil-tex-bora-surround-command-prompt ()
+  "Ask the user for the command they'd like to surround with."
+  (evil-tex-bora--format-command-for-surrounding
+   (read-from-minibuffer "command: \\" nil minibuffer-local-ns-map)))
+
+;; Surround delimiters alist
+
+(defvar evil-tex-bora-surround-delimiters
+  `((?m "\\(" . "\\)")
+    (?M "\\[" . "\\]")
+    (?c . ,#'evil-tex-bora-surround-command-prompt)
+    (?e . ,#'evil-tex-bora-surround-env-prompt)
+    (?d . ,#'evil-tex-bora-surround-delim-prompt)
+    (?\; . ,#'evil-tex-bora-surround-cdlatex-accents-prompt)
+    (?q "`" . "'")
+    (?Q "``" . "''")
+    (?^ "^{" . "}")
+    (?_ "_{" . "}")
+    (?T "&" . "&"))
+  "Delimiter pairs for `evil-surround'.
+
+Each element is (CHAR LEFT-DELIM . RIGHT-DELIM) or (CHAR . FUNCTION).
+- m: inline math \\(...\\)
+- M: display math \\[...\\]
+- c: command (prompts for name)
+- e: environment (prompts with keymap)
+- d: delimiter (prompts with keymap)
+- ;: cdlatex accent (prompts with keymap)
+- q: single LaTeX quote `...'
+- Q: double LaTeX quote ``...''
+- ^: superscript ^{...}
+- _: subscript _{...}
+- T: table cell &...&")
+
+;; Text object keymaps for surround
+
+(defvar evil-tex-bora-inner-text-objects-map (make-sparse-keymap)
+  "Inner text object keymap for `evil-tex-bora'.")
+
+(defvar evil-tex-bora-outer-text-objects-map (make-sparse-keymap)
+  "Outer text object keymap for `evil-tex-bora'.")
+
+;; Setup functions
+
+(defun evil-tex-bora-set-up-surround ()
+  "Configure evil-surround for LaTeX editing.
+Things like 'csm' (change surrounding math) will work after this."
+  (setq-local evil-surround-pairs-alist
+              (append evil-tex-bora-surround-delimiters evil-surround-pairs-alist))
+  ;; Use local text object maps if evil-surround supports it
+  (when (and (boundp 'evil-surround-local-inner-text-object-map-list)
+             (boundp 'evil-surround-local-outer-text-object-map-list))
+    (add-to-list 'evil-surround-local-inner-text-object-map-list
+                 evil-tex-bora-inner-text-objects-map)
+    (add-to-list 'evil-surround-local-outer-text-object-map-list
+                 evil-tex-bora-outer-text-objects-map)))
+
+(defun evil-tex-bora-set-up-embrace ()
+  "Configure evil-embrace not to steal our evil-surround keybinds."
+  (setq-local evil-embrace-evil-surround-keys
+              (append
+               (mapcar #'car evil-tex-bora-surround-delimiters)
+               evil-embrace-evil-surround-keys)))
+
+;; Populate text object keymaps
+(with-eval-after-load 'evil
+  ;; Inner text objects
+  (define-key evil-tex-bora-inner-text-objects-map "e" #'evil-tex-bora-inner-environment)
+  (define-key evil-tex-bora-inner-text-objects-map "c" #'evil-tex-bora-inner-command)
+  (define-key evil-tex-bora-inner-text-objects-map "m" #'evil-tex-bora-inner-math)
+  (define-key evil-tex-bora-inner-text-objects-map "d" #'evil-tex-bora-inner-delimiter)
+  ;; Outer text objects
+  (define-key evil-tex-bora-outer-text-objects-map "e" #'evil-tex-bora-outer-environment)
+  (define-key evil-tex-bora-outer-text-objects-map "c" #'evil-tex-bora-outer-command)
+  (define-key evil-tex-bora-outer-text-objects-map "m" #'evil-tex-bora-outer-math)
+  (define-key evil-tex-bora-outer-text-objects-map "d" #'evil-tex-bora-outer-delimiter))
+
+;; Shorten which-key descriptions
+(with-eval-after-load 'which-key
+  (push
+   '(("\\`." . "evil-tex-bora-.*---\\(.*\\)") . (nil . "\\1"))
+   which-key-replacement-alist))
+
 ;;; Keymap
 
 (defvar evil-tex-bora-toggle-map
@@ -1061,7 +1452,13 @@ These bindings are global but the functions check if evil-tex-bora-mode is activ
         ;; Ensure treesit parser is created for this buffer
         (treesit-parser-create 'latex)
         ;; Add hook for cursor positioning after linewise delete
-        (add-hook 'post-command-hook #'evil-tex-bora--post-command-first-non-blank nil t))
+        (add-hook 'post-command-hook #'evil-tex-bora--post-command-first-non-blank nil t)
+        ;; Setup evil-surround integration
+        (when (require 'evil-surround nil t)
+          (evil-tex-bora-set-up-surround))
+        ;; Setup evil-embrace integration
+        (when (require 'evil-embrace nil t)
+          (evil-tex-bora-set-up-embrace)))
     ;; Cleanup when mode is disabled
     (remove-hook 'post-command-hook #'evil-tex-bora--post-command-first-non-blank t)))
 

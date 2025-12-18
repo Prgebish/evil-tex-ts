@@ -77,13 +77,13 @@ Tree-sitter based LaTeX text objects for Evil mode in Emacs 29+.
 - [x] mtc (command asterisk)
 
 ### Phase 4: Surround
-- [ ] Evil-surround integration
-- [ ] Prompt keymaps
+- [x] Evil-surround integration
+- [x] Prompt keymaps
 
 ### Phase 5: Finalization
 - [x] Minor mode (`evil-tex-bora-mode`)
 - [x] Keymaps (text objects + toggle bindings)
-- [x] Tests (81 tests passing)
+- [x] Tests (113 tests passing)
 
 ## Reference
 
