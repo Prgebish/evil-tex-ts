@@ -1,4 +1,4 @@
-;;; evil-tex-bora.el --- Tree-sitter based LaTeX text objects for Evil -*- lexical-binding: t; -*-
+;;; evil-tex-ts.el --- Tree-sitter based LaTeX text objects for Evil -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (C) 2024
 ;;
@@ -7,7 +7,7 @@
 ;; Created: 2024
 ;; Version: 0.1.0
 ;; Keywords: tex, emulation, vi, evil, wp
-;; Homepage: https://github.com/chestnykh/evil-tex-bora
+;; Homepage: https://github.com/chestnykh/evil-tex-ts
 ;; Package-Requires: ((emacs "29.1") (evil "1.0"))
 ;;
 ;; This file is NOT part of GNU Emacs.
@@ -49,15 +49,21 @@
 (require 'evil)
 (require 'treesit)
 
+;;; Declaring optional external variables
+(defvar evil-surround-pairs-alist)
+(defvar evil-surround-local-inner-text-object-map-list)
+(defvar evil-surround-local-outer-text-object-map-list)
+(defvar evil-embrace-evil-surround-keys)
+
 ;;; Customization
 
-(defgroup evil-tex-bora nil
+(defgroup evil-tex-ts nil
   "Tree-sitter based LaTeX text objects for Evil."
   :version "29.1"
   :group 'evil
-  :prefix "evil-tex-bora-")
+  :prefix "evil-tex-ts-")
 
-(defcustom evil-tex-bora-select-newlines-with-envs t
+(defcustom evil-tex-ts-select-newlines-with-envs t
   "Whether to select newlines with environment text objects.
 
 When non-nil:
@@ -71,26 +77,26 @@ When non-nil:
 This makes `dae' delete the entire environment including its line,
 and `cie' place cursor on a clean line for replacement."
   :type 'boolean
-  :group 'evil-tex-bora)
+  :group 'evil-tex-ts)
 
-(defcustom evil-tex-bora-toggle-override-m t
+(defcustom evil-tex-ts-toggle-override-m t
   "Whether to bind toggle commands to `mt' prefix.
 When non-nil, toggles are bound to mte, mtm, mtd, mtc.
 This overrides the `m' key (set-marker) for the `t' character.
 Set to nil to preserve the original `m' behavior."
   :type 'boolean
-  :group 'evil-tex-bora)
+  :group 'evil-tex-ts)
 
-(defcustom evil-tex-bora-toggle-override-t nil
+(defcustom evil-tex-ts-toggle-override-t nil
   "Whether to bind toggle commands to `ts' prefix instead.
 When non-nil, toggles are bound to tse, tsm, tsd, tsc.
 This overrides the `t' motion (till char) for the `s' character.
-Can be used together with `evil-tex-bora-toggle-override-m'."
+Can be used together with `evil-tex-ts-toggle-override-m'."
   :type 'boolean
-  :group 'evil-tex-bora)
+  :group 'evil-tex-ts)
 
-(defcustom evil-tex-bora-preferred-inline-math 'dollar
-  "Preferred inline math format for `evil-tex-bora-toggle-math-mode'.
+(defcustom evil-tex-ts-preferred-inline-math 'dollar
+  "Preferred inline math format for `evil-tex-ts-toggle-math-mode'.
 When toggling from display math \\[...\\] back to inline, this
 determines which format to use.
 
@@ -98,15 +104,15 @@ determines which format to use.
 - `paren': Use \\(...\\) (LaTeX2e recommended)"
   :type '(choice (const :tag "$...$" dollar)
                  (const :tag "\\(...\\)" paren))
-  :group 'evil-tex-bora)
+  :group 'evil-tex-ts)
 
-(defcustom evil-tex-bora-include-newlines-in-envs t
+(defcustom evil-tex-ts-include-newlines-in-envs t
   "Whether include newlines with env insertion via surround.
 
 When non-nil, env insertions would force separate lines for
 \\begin, inner text, and \\end."
   :type 'boolean
-  :group 'evil-tex-bora)
+  :group 'evil-tex-ts)
 
 ;;; Evil-surround integration declarations
 
@@ -121,31 +127,31 @@ When non-nil, env insertions would force separate lines for
 
 ;;; Tree-sitter utilities
 
-(defun evil-tex-bora--ensure-parser ()
+(defun evil-tex-ts--ensure-parser ()
   "Ensure LaTeX tree-sitter parser is available.
 Returns non-nil if parser is ready, nil otherwise."
   (and (treesit-available-p)
        (treesit-language-available-p 'latex)))
 
-(defun evil-tex-bora--get-node-at-point ()
+(defun evil-tex-ts--get-node-at-point ()
   "Get tree-sitter node at point for LaTeX."
-  (when (evil-tex-bora--ensure-parser)
+  (when (evil-tex-ts--ensure-parser)
     (treesit-node-at (point) 'latex)))
 
-(defun evil-tex-bora--find-parent-by-type (node types)
+(defun evil-tex-ts--find-parent-by-type (node types)
   "Find parent of NODE that matches one of TYPES.
 TYPES is a list of node type strings."
   (treesit-parent-until
    node
    (lambda (n) (member (treesit-node-type n) types))))
 
-(defun evil-tex-bora--node-bounds (node)
+(defun evil-tex-ts--node-bounds (node)
   "Get bounds of NODE as (start . end)."
   (when node
     (cons (treesit-node-start node)
           (treesit-node-end node))))
 
-(defun evil-tex-bora--node-contains-point-p (node pt)
+(defun evil-tex-ts--node-contains-point-p (node pt)
   "Return non-nil when NODE contains PT.
 
 Tree-sitter node ranges are half-open: [start, end)."
@@ -153,11 +159,11 @@ Tree-sitter node ranges are half-open: [start, end)."
 
 ;;; Text object helpers
 
-(defun evil-tex-bora--bounds-of-environment-at-node (env-node)
+(defun evil-tex-ts--bounds-of-environment-at-node (env-node)
   "Return bounds for ENV-NODE.
 Helper function that extracts bounds from a known environment node.
 
-When `evil-tex-bora-select-newlines-with-envs' is non-nil:
+When `evil-tex-ts-select-newlines-with-envs' is non-nil:
 - outer-end extends to include trailing newline (for clean `dae' deletion)
 - inner selection includes the newline before \\end{...}
 - inner selection is anchored to the indentation level of the \\end line"
@@ -169,7 +175,7 @@ When `evil-tex-bora-select-newlines-with-envs' is non-nil:
          (inner-beg (if begin-node (treesit-node-end begin-node) outer-beg))
          (inner-end (if end-node (treesit-node-start end-node) outer-end)))
     ;; Adjust bounds for newlines if option is enabled
-    (when evil-tex-bora-select-newlines-with-envs
+    (when evil-tex-ts-select-newlines-with-envs
       ;; Extend outer-beg to include leading whitespace on the line
       ;; This ensures 'dae' deletes the whole line including indentation
       (save-excursion
@@ -223,7 +229,7 @@ When `evil-tex-bora-select-newlines-with-envs' is non-nil:
             (setq inner-end (point))))))
     (list outer-beg outer-end inner-beg inner-end)))
 
-(defun evil-tex-bora--find-environment-forward ()
+(defun evil-tex-ts--find-environment-forward ()
   "Search forward on current line for nearest environment and return its bounds.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
   (save-excursion
@@ -234,18 +240,18 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
                   (re-search-forward "\\\\begin{" line-end t))
         (goto-char (match-beginning 0))
         (when-let* ((node (treesit-node-at (point) 'latex))
-                    (env-node (evil-tex-bora--find-parent-by-type
+                    (env-node (evil-tex-ts--find-parent-by-type
                                node '("generic_environment" "math_environment"))))
-          (setq found (evil-tex-bora--bounds-of-environment-at-node env-node)))
+          (setq found (evil-tex-ts--bounds-of-environment-at-node env-node)))
         (unless found
           (goto-char (match-end 0))))
       found)))
 
-(defun evil-tex-bora--bounds-of-environment ()
+(defun evil-tex-ts--bounds-of-environment ()
   "Return bounds of LaTeX environment at or after point on the same line.
 Returns (outer-beg outer-end inner-beg inner-end) or nil.
 
-When `evil-tex-bora-select-newlines-with-envs' is non-nil:
+When `evil-tex-ts-select-newlines-with-envs' is non-nil:
 - outer-end extends to include trailing newline (for clean `dae' deletion)
 - inner selection includes the newline before \\end{...} (so `die' removes
   the whole inner block, like Vim's `di)` on multi-line parens)
@@ -256,14 +262,14 @@ First tries to find environment containing point.
 If not found, searches forward on the same line for the nearest environment."
   (or
    ;; First try: find environment containing point
-   (when-let* ((node (evil-tex-bora--get-node-at-point))
-               (env-node (evil-tex-bora--find-parent-by-type
+   (when-let* ((node (evil-tex-ts--get-node-at-point))
+               (env-node (evil-tex-ts--find-parent-by-type
                           node '("generic_environment" "math_environment"))))
-     (evil-tex-bora--bounds-of-environment-at-node env-node))
+     (evil-tex-ts--bounds-of-environment-at-node env-node))
    ;; Fallback: search forward on the same line
-   (evil-tex-bora--find-environment-forward)))
+   (evil-tex-ts--find-environment-forward)))
 
-(defun evil-tex-bora--change-operator-p ()
+(defun evil-tex-ts--change-operator-p ()
   "Return non-nil when the current Evil operator is a change command."
   (when (boundp 'evil-this-operator)
     (let ((op evil-this-operator))
@@ -271,15 +277,15 @@ If not found, searches forward on the same line for the nearest environment."
           (and (boundp 'evil-change-commands)
                (memq op evil-change-commands))))))
 
-(defun evil-tex-bora--bounds-of-environment-inner-lines ()
+(defun evil-tex-ts--bounds-of-environment-inner-lines ()
   "Return linewise inner bounds of environment at point as (BEG . END).
 
 BEG is the beginning of the first line after \\begin{...}.
 END is the beginning of the line containing \\end{...}.
 
 Returns nil for single-line environments or if no environment is found."
-  (when-let* ((node (evil-tex-bora--get-node-at-point))
-              (env-node (evil-tex-bora--find-parent-by-type
+  (when-let* ((node (evil-tex-ts--get-node-at-point))
+              (env-node (evil-tex-ts--find-parent-by-type
                          node '("generic_environment" "math_environment")))
               (begin-node (treesit-node-child-by-field-name env-node "begin"))
               (end-node (treesit-node-child-by-field-name env-node "end")))
@@ -294,7 +300,7 @@ Returns nil for single-line environments or if no environment is found."
                   (goto-char end-start)
                   (line-beginning-position))))))))
 
-(defconst evil-tex-bora--command-types
+(defconst evil-tex-ts--command-types
   '("generic_command"
     ;; Section commands
     "part" "chapter" "section" "subsection" "subsubsection"
@@ -311,7 +317,7 @@ Returns nil for single-line environments or if no environment is found."
     "text_mode")
   "List of tree-sitter node types that represent LaTeX commands.")
 
-(defun evil-tex-bora--find-command-forward ()
+(defun evil-tex-ts--find-command-forward ()
   "Search forward on current line for nearest command and return its bounds.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
   (save-excursion
@@ -322,13 +328,13 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
                   (re-search-forward "\\\\[a-zA-Z@]+" line-end t))
         (goto-char (match-beginning 0))
         (when-let* ((node (treesit-node-at (point) 'latex))
-                    (cmd-node (evil-tex-bora--find-parent-by-type
-                               node evil-tex-bora--command-types)))
+                    (cmd-node (evil-tex-ts--find-parent-by-type
+                               node evil-tex-ts--command-types)))
           (let* ((outer-beg (treesit-node-start cmd-node))
-                 (arg-info (evil-tex-bora--command-curly-args cmd-node))
+                 (arg-info (evil-tex-ts--command-curly-args cmd-node))
                  (outer-end (car arg-info))
                  (curly-nodes (cdr arg-info))
-                 (target-curly (evil-tex-bora--find-target-curly-group curly-nodes (point)))
+                 (target-curly (evil-tex-ts--find-target-curly-group curly-nodes (point)))
                  (inner-beg (if target-curly
                                 (1+ (treesit-node-start target-curly))
                               outer-end))
@@ -340,7 +346,7 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
           (goto-char (match-end 0))))
       found)))
 
-(defun evil-tex-bora--bounds-of-command ()
+(defun evil-tex-ts--bounds-of-command ()
   "Return bounds of LaTeX command at or after point on the same line.
 Returns (outer-beg outer-end inner-beg inner-end) or nil.
 
@@ -360,30 +366,30 @@ First tries to find command containing point.
 If not found, searches forward on the same line for the nearest command."
   ;; Ensure we have a parser
   (unless (treesit-parser-list)
-    (when (evil-tex-bora--ensure-parser)
+    (when (evil-tex-ts--ensure-parser)
       (treesit-parser-create 'latex)))
   ;; Try fallback first - it handles cases like \sqrt[n]{x} where
   ;; tree-sitter doesn't recognize the curly group as part of the command
-  (or (evil-tex-bora--bounds-of-command-fallback)
-      (evil-tex-bora--bounds-of-command-tree-sitter)
+  (or (evil-tex-ts--bounds-of-command-fallback)
+      (evil-tex-ts--bounds-of-command-tree-sitter)
       ;; Fallback: search forward on the same line
-      (evil-tex-bora--find-command-forward)))
+      (evil-tex-ts--find-command-forward)))
 
-(defun evil-tex-bora--command-curly-args (cmd-node)
+(defun evil-tex-ts--command-curly-args (cmd-node)
   "Return command curly arguments info for CMD-NODE.
 
 Returns (OUTER-END . CURLY-NODES), where OUTER-END may be extended to include
 trailing optional [...] and curly {...} arguments that are not part of the
 tree-sitter command node."
   (let ((outer-end (treesit-node-end cmd-node))
-        (curly-nodes (evil-tex-bora--collect-command-curly-args cmd-node)))
+        (curly-nodes (evil-tex-ts--collect-command-curly-args cmd-node)))
     (when (null curly-nodes)
-      (when-let ((extended (evil-tex-bora--extend-command-bounds cmd-node)))
+      (when-let ((extended (evil-tex-ts--extend-command-bounds cmd-node)))
         (setq outer-end (nth 0 extended))
         (setq curly-nodes (nth 1 extended))))
     (cons outer-end curly-nodes)))
 
-(defun evil-tex-bora--nearest-ancestor-command-with-curly-arg (cmd-node pt)
+(defun evil-tex-ts--nearest-ancestor-command-with-curly-arg (cmd-node pt)
   "Return nearest ancestor command of CMD-NODE whose curly arg contains PT.
 
 This is used to prefer the surrounding command when point is on an inner
@@ -391,20 +397,20 @@ no-argument command (e.g. \\cdot) inside another command's {...} argument."
   (let ((parent (treesit-node-parent cmd-node))
         (found nil))
     (while (and parent (not found))
-      (when (member (treesit-node-type parent) evil-tex-bora--command-types)
-        (let* ((arg-info (evil-tex-bora--command-curly-args parent))
+      (when (member (treesit-node-type parent) evil-tex-ts--command-types)
+        (let* ((arg-info (evil-tex-ts--command-curly-args parent))
                (curly-nodes (cdr arg-info))
                (contains-point nil))
           (when curly-nodes
             (dolist (curly-node curly-nodes)
-              (when (evil-tex-bora--node-contains-point-p curly-node pt)
+              (when (evil-tex-ts--node-contains-point-p curly-node pt)
                 (setq contains-point t)))
             (when contains-point
               (setq found parent)))))
       (setq parent (treesit-node-parent parent)))
     found))
 
-(defun evil-tex-bora--bounds-of-command-tree-sitter ()
+(defun evil-tex-ts--bounds-of-command-tree-sitter ()
   "Return bounds of LaTeX command using tree-sitter nodes.
 Returns (outer-beg outer-end inner-beg inner-end) or nil.
 
@@ -416,18 +422,18 @@ For example, \\sqrt[n]{x} is parsed as separate nodes:
 - curly_group: {x}
 
 We detect this and extend the command bounds to include trailing [...] and {...}."
-  (when-let* ((node (evil-tex-bora--get-node-at-point))
-              (cmd-node (evil-tex-bora--find-parent-by-type
-                         node evil-tex-bora--command-types)))
+  (when-let* ((node (evil-tex-ts--get-node-at-point))
+              (cmd-node (evil-tex-ts--find-parent-by-type
+                         node evil-tex-ts--command-types)))
     (let* ((outer-beg (treesit-node-start cmd-node))
            (outer-end (treesit-node-end cmd-node))
            (pt (point))
            ;; Collect curly arg nodes that are children of the command
-           (curly-nodes (evil-tex-bora--collect-command-curly-args cmd-node)))
+           (curly-nodes (evil-tex-ts--collect-command-curly-args cmd-node)))
       ;; If the command has no curly children, check if there are trailing
       ;; [...] and {...} siblings that belong to this command
       (when (null curly-nodes)
-        (let ((extended (evil-tex-bora--extend-command-bounds cmd-node)))
+        (let ((extended (evil-tex-ts--extend-command-bounds cmd-node)))
           (when extended
             (setq outer-end (nth 0 extended))
             (setq curly-nodes (nth 1 extended)))))
@@ -436,14 +442,14 @@ We detect this and extend the command bounds to include trailing [...] and {...}
       ;; This matches the expected `vic` behavior for cases like:
       ;;   \\sqrt{a_1 \\cdot a_2|}  -> selects "a_1 \\cdot a_2"
       (when (null curly-nodes)
-        (when-let ((ancestor (evil-tex-bora--nearest-ancestor-command-with-curly-arg
+        (when-let ((ancestor (evil-tex-ts--nearest-ancestor-command-with-curly-arg
                               cmd-node pt)))
           (setq cmd-node ancestor)
           (setq outer-beg (treesit-node-start cmd-node))
-          (let ((arg-info (evil-tex-bora--command-curly-args cmd-node)))
+          (let ((arg-info (evil-tex-ts--command-curly-args cmd-node)))
             (setq outer-end (car arg-info))
             (setq curly-nodes (cdr arg-info)))))
-      (let* ((target-curly (evil-tex-bora--find-target-curly-group curly-nodes pt))
+      (let* ((target-curly (evil-tex-ts--find-target-curly-group curly-nodes pt))
              (inner-beg (if target-curly
                             (1+ (treesit-node-start target-curly))
                           outer-end))
@@ -452,7 +458,7 @@ We detect this and extend the command bounds to include trailing [...] and {...}
                           outer-end)))
         (list outer-beg outer-end inner-beg inner-end)))))
 
-(defun evil-tex-bora--extend-command-bounds (cmd-node)
+(defun evil-tex-ts--extend-command-bounds (cmd-node)
   "Check if CMD-NODE has trailing [...] and {...} siblings.
 Returns (new-outer-end curly-nodes) if found, nil otherwise.
 CURLY-NODES is a list of curly_group nodes for inner selection."
@@ -476,7 +482,7 @@ CURLY-NODES is a list of curly_group nodes for inner selection."
             ;; Find the curly_group node at this position
             (let ((node-at (treesit-node-at grp-start 'latex)))
               (when node-at
-                (let ((curly-node (evil-tex-bora--find-parent-by-type
+                (let ((curly-node (evil-tex-ts--find-parent-by-type
                                    node-at '("curly_group"))))
                   (when curly-node
                     (push curly-node curly-nodes)))))
@@ -486,7 +492,7 @@ CURLY-NODES is a list of curly_group nodes for inner selection."
       (when (and curly-nodes (> new-end (treesit-node-end cmd-node)))
         (list new-end (nreverse curly-nodes))))))
 
-(defun evil-tex-bora--find-target-curly-group (curly-nodes pt)
+(defun evil-tex-ts--find-target-curly-group (curly-nodes pt)
   "Find the target curly group for inner selection from CURLY-NODES.
 Returns the curly group containing PT, or the nearest one to the right of PT,
 or the first curly group if PT is after all of them."
@@ -511,33 +517,33 @@ or the first curly group if PT is after all of them."
       ;; Return containing group, or nearest right, or first curly
       (or containing nearest-right (car curly-nodes)))))
 
-(defconst evil-tex-bora--curly-arg-node-types
+(defconst evil-tex-ts--curly-arg-node-types
   '("curly_group" "curly_group_text" "curly_group_text_list"
     "curly_group_path" "curly_group_path_list" "curly_group_glob_pattern"
     "curly_group_label" "curly_group_key_value" "curly_group_author_list")
   "List of tree-sitter node types that represent curly brace command arguments.")
 
-(defun evil-tex-bora--collect-command-curly-args (cmd-node)
+(defun evil-tex-ts--collect-command-curly-args (cmd-node)
   "Collect curly group argument nodes from CMD-NODE."
   (let ((args nil)
         (child-count (treesit-node-child-count cmd-node)))
     (dotimes (i child-count)
       (let* ((child (treesit-node-child cmd-node i))
              (type (treesit-node-type child)))
-        (when (member type evil-tex-bora--curly-arg-node-types)
+        (when (member type evil-tex-ts--curly-arg-node-types)
           (push child args))))
     (nreverse args)))
 
-(defun evil-tex-bora--bounds-of-command-fallback ()
+(defun evil-tex-ts--bounds-of-command-fallback ()
   "Return bounds of LaTeX command using fallback search.
 This handles cases where tree-sitter doesn't recognize the command structure,
 such as \\sqrt[n]{x} where the curly group is not a child of the command.
 Also handles when cursor is inside optional [...] argument.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
-  (let ((node (evil-tex-bora--get-node-at-point)))
+  (let ((node (evil-tex-ts--get-node-at-point)))
     (when node
       ;; Try to find orphan curly_group first
-      (let ((curly-node (evil-tex-bora--find-parent-by-type
+      (let ((curly-node (evil-tex-ts--find-parent-by-type
                          node '("curly_group"))))
         (if curly-node
             ;; Check if this curly_group is "orphan" (not part of a recognized
@@ -545,16 +551,16 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
             ;; \sqrt[n]{x} as separate siblings (\sqrt, [...], {...}), so when
             ;; point is inside {...} there is no command node ancestor.
             (let ((enclosing-command
-                   (evil-tex-bora--find-parent-by-type
-                    curly-node evil-tex-bora--command-types)))
+                   (evil-tex-ts--find-parent-by-type
+                    curly-node evil-tex-ts--command-types)))
               (unless enclosing-command
                 ;; Look backward for a command pattern and find all curly groups
-                (evil-tex-bora--find-command-with-curly-fallback curly-node)))
+                (evil-tex-ts--find-command-with-curly-fallback curly-node)))
           ;; No curly_group found - maybe cursor is inside [...] argument
           ;; Check if we're inside brackets that follow a command
-          (evil-tex-bora--find-command-from-bracket-position))))))
+          (evil-tex-ts--find-command-from-bracket-position))))))
 
-(defun evil-tex-bora--find-command-from-bracket-position ()
+(defun evil-tex-ts--find-command-from-bracket-position ()
   "Find command bounds when cursor is inside optional [...] argument.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
   (save-excursion
@@ -597,7 +603,7 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
                 (setq curly-groups (nreverse curly-groups))
                 ;; Find the target curly group
                 (if curly-groups
-                    (let ((target (evil-tex-bora--find-target-curly-group-from-positions
+                    (let ((target (evil-tex-ts--find-target-curly-group-from-positions
                                    curly-groups pt)))
                       (when target
                         (list cmd-start cmd-end
@@ -605,7 +611,7 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
                   ;; No curly groups - inner is empty
                   (list cmd-start cmd-end cmd-end cmd-end))))))))))
 
-(defun evil-tex-bora--find-command-with-curly-fallback (curly-node)
+(defun evil-tex-ts--find-command-with-curly-fallback (curly-node)
   "Find command bounds when CURLY-NODE is not recognized as part of a command.
 Looks backward from CURLY-NODE for a command pattern like \\cmd or \\cmd[...].
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
@@ -653,13 +659,13 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
                     (skip-chars-forward " \t\n")))
                 (setq curly-groups (nreverse curly-groups))
                 ;; Find the target curly group (containing point or nearest right)
-                (let ((target (evil-tex-bora--find-target-curly-group-from-positions
+                (let ((target (evil-tex-ts--find-target-curly-group-from-positions
                                curly-groups pt)))
                   (when target
                     (list cmd-start cmd-end
                           (1+ (car target)) (1- (cdr target)))))))))))))
 
-(defun evil-tex-bora--find-target-curly-group-from-positions (curly-positions pt)
+(defun evil-tex-ts--find-target-curly-group-from-positions (curly-positions pt)
   "Find target curly group from CURLY-POSITIONS (list of (start . end) cons).
 Returns the group containing PT, or nearest to the right, or first."
   (when curly-positions
@@ -679,7 +685,7 @@ Returns the group containing PT, or nearest to the right, or first."
                       nearest-right-dist dist)))))))
       (or containing nearest-right (car curly-positions)))))
 
-(defconst evil-tex-bora--arg-node-types
+(defconst evil-tex-ts--arg-node-types
   '("curly_group" "brack_group"
     ;; Text variants used by some commands
     "curly_group_text" "curly_group_text_list"
@@ -694,18 +700,18 @@ Returns the group containing PT, or nearest to the right, or first."
     "curly_group_author_list" "brack_group_date")
   "List of tree-sitter node types that represent command arguments.")
 
-(defun evil-tex-bora--collect-command-args (cmd-node)
+(defun evil-tex-ts--collect-command-args (cmd-node)
   "Collect all argument nodes from CMD-NODE."
   (let ((args nil)
         (child-count (treesit-node-child-count cmd-node)))
     (dotimes (i child-count)
       (let* ((child (treesit-node-child cmd-node i))
              (type (treesit-node-type child)))
-        (when (member type evil-tex-bora--arg-node-types)
+        (when (member type evil-tex-ts--arg-node-types)
           (push child args))))
     (nreverse args)))
 
-(defun evil-tex-bora--bounds-of-math-at-node (math-node)
+(defun evil-tex-ts--bounds-of-math-at-node (math-node)
   "Return bounds for MATH-NODE.
 Helper function that extracts bounds from a known math node."
   (let* ((outer-beg (treesit-node-start math-node))
@@ -729,7 +735,7 @@ Helper function that extracts bounds from a known math node."
              (inner-end (if last-child (treesit-node-start last-child) outer-end)))
         (list outer-beg outer-end inner-beg inner-end))))))
 
-(defun evil-tex-bora--find-math-forward ()
+(defun evil-tex-ts--find-math-forward ()
   "Search forward on current line for nearest math and return its bounds.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
   (save-excursion
@@ -740,15 +746,15 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
                   (re-search-forward "\\$\\|\\\\(\\|\\\\\\[\\|\\\\begin{" line-end t))
         (backward-char (length (match-string 0)))
         (when-let* ((node (treesit-node-at (point) 'latex))
-                    (math-node (evil-tex-bora--find-parent-by-type
+                    (math-node (evil-tex-ts--find-parent-by-type
                                 node '("inline_formula" "displayed_equation"
                                        "math_environment"))))
-          (setq found (evil-tex-bora--bounds-of-math-at-node math-node)))
+          (setq found (evil-tex-ts--bounds-of-math-at-node math-node)))
         (unless found
           (forward-char (length (match-string 0)))))
       found)))
 
-(defun evil-tex-bora--bounds-of-math ()
+(defun evil-tex-ts--bounds-of-math ()
   "Return bounds of math environment at or after point on the same line.
 Returns (outer-beg outer-end inner-beg inner-end) or nil.
 
@@ -756,15 +762,15 @@ First tries to find math containing point.
 If not found, searches forward on the same line for the nearest math."
   (or
    ;; First try: find math containing point
-   (when-let* ((node (evil-tex-bora--get-node-at-point))
-               (math-node (evil-tex-bora--find-parent-by-type
+   (when-let* ((node (evil-tex-ts--get-node-at-point))
+               (math-node (evil-tex-ts--find-parent-by-type
                            node '("inline_formula" "displayed_equation"
                                   "math_environment"))))
-     (evil-tex-bora--bounds-of-math-at-node math-node))
+     (evil-tex-ts--bounds-of-math-at-node math-node))
    ;; Fallback: search forward on the same line
-   (evil-tex-bora--find-math-forward)))
+   (evil-tex-ts--find-math-forward)))
 
-(defconst evil-tex-bora--delimiter-pairs
+(defconst evil-tex-ts--delimiter-pairs
   '(("(" . ")")
     ("[" . "]")
     ("\\{" . "\\}")
@@ -775,7 +781,7 @@ If not found, searches forward on the same line for the nearest math."
     ("\\lceil" . "\\rceil"))
   "List of delimiter pairs (left . right) for matching.")
 
-(defconst evil-tex-bora--delimiter-prefixes
+(defconst evil-tex-ts--delimiter-prefixes
   '("" "\\left" "\\right"
     "\\bigl" "\\bigr" "\\big"
     "\\Bigl" "\\Bigr" "\\Big"
@@ -783,7 +789,7 @@ If not found, searches forward on the same line for the nearest math."
     "\\Biggl" "\\Biggr" "\\Bigg")
   "Prefixes that can appear before delimiters.")
 
-(defun evil-tex-bora--find-delimiter-forward ()
+(defun evil-tex-ts--find-delimiter-forward ()
   "Search forward on current line for nearest delimiter and return its bounds.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
   (save-excursion
@@ -795,7 +801,7 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
         (goto-char (match-beginning 0))
         ;; Try math_delimiter first
         (when-let* ((node (treesit-node-at (point) 'latex))
-                    (delim-node (evil-tex-bora--find-parent-by-type
+                    (delim-node (evil-tex-ts--find-parent-by-type
                                  node '("math_delimiter"))))
           (let* ((outer-beg (treesit-node-start delim-node))
                  (outer-end (treesit-node-end delim-node))
@@ -806,7 +812,7 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
             (setq found (list outer-beg outer-end inner-beg inner-end))))
         ;; If not math_delimiter, try simple delimiter pair
         (unless found
-          (dolist (pair evil-tex-bora--delimiter-pairs)
+          (dolist (pair evil-tex-ts--delimiter-pairs)
             (when (and (not found)
                        (looking-at (regexp-quote (car pair))))
               (let ((left (car pair))
@@ -823,7 +829,7 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
           (goto-char (1+ (match-beginning 0)))))
       found)))
 
-(defun evil-tex-bora--bounds-of-delimiter ()
+(defun evil-tex-ts--bounds-of-delimiter ()
   "Return bounds of delimiter at or after point on the same line.
 Returns (outer-beg outer-end inner-beg inner-end) or nil.
 
@@ -832,15 +838,15 @@ and falls back to searching for matching delimiter pairs.
 
 First tries to find delimiter containing point.
 If not found, searches forward on the same line for the nearest delimiter."
-  (or (evil-tex-bora--bounds-of-math-delimiter)
-      (evil-tex-bora--bounds-of-simple-delimiter)
+  (or (evil-tex-ts--bounds-of-math-delimiter)
+      (evil-tex-ts--bounds-of-simple-delimiter)
       ;; Fallback: search forward on the same line
-      (evil-tex-bora--find-delimiter-forward)))
+      (evil-tex-ts--find-delimiter-forward)))
 
-(defun evil-tex-bora--bounds-of-math-delimiter ()
+(defun evil-tex-ts--bounds-of-math-delimiter ()
   "Return bounds of math_delimiter node at point, or nil."
-  (when-let* ((node (evil-tex-bora--get-node-at-point))
-              (delim-node (evil-tex-bora--find-parent-by-type
+  (when-let* ((node (evil-tex-ts--get-node-at-point))
+              (delim-node (evil-tex-ts--find-parent-by-type
                            node '("math_delimiter"))))
     (let* ((outer-beg (treesit-node-start delim-node))
            (outer-end (treesit-node-end delim-node))
@@ -856,16 +862,16 @@ If not found, searches forward on the same line for the nearest delimiter."
                         outer-end)))
       (list outer-beg outer-end inner-beg inner-end))))
 
-(defun evil-tex-bora--bounds-of-simple-delimiter ()
+(defun evil-tex-ts--bounds-of-simple-delimiter ()
   "Return bounds of simple delimiter pair at point using search.
 Finds closest enclosing (), [], or \\{\\}."
   (let ((best-bounds nil)
         (point-pos (point)))
     (save-excursion
-      (dolist (pair evil-tex-bora--delimiter-pairs)
+      (dolist (pair evil-tex-ts--delimiter-pairs)
         (let* ((left (car pair))
                (right (cdr pair))
-               (bounds (evil-tex-bora--find-delimiter-pair left right)))
+               (bounds (evil-tex-ts--find-delimiter-pair left right)))
           (when bounds
             ;; Check if this pair contains point and is closer than current best
             (let ((outer-beg (nth 0 bounds))
@@ -878,18 +884,18 @@ Finds closest enclosing (), [], or \\{\\}."
                 (setq best-bounds bounds)))))))
     best-bounds))
 
-(defun evil-tex-bora--find-delimiter-pair (left right)
+(defun evil-tex-ts--find-delimiter-pair (left right)
   "Find matching delimiter pair LEFT and RIGHT around point.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
   (let ((orig-point (point))
         left-pos right-pos)
     (save-excursion
       ;; Search backward for left delimiter (include current position)
-      (when (evil-tex-bora--search-backward-delimiter left)
+      (when (evil-tex-ts--search-backward-delimiter left)
         (setq left-pos (point))
         ;; Search forward for matching right delimiter
         (goto-char orig-point)
-        (when (evil-tex-bora--search-forward-delimiter right)
+        (when (evil-tex-ts--search-forward-delimiter right)
           (setq right-pos (point))
           ;; Verify this is a valid pair (left at or before point, right after point)
           (when (and left-pos right-pos
@@ -899,7 +905,7 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
                   (+ left-pos (length left))
                   (- right-pos (length right)))))))))
 
-(defun evil-tex-bora--search-backward-delimiter (delim)
+(defun evil-tex-ts--search-backward-delimiter (delim)
   "Search backward for DELIM, handling nesting.
 Returns position if found, nil otherwise.
 Skips delimiters that are part of \\( \\) \\[ \\] sequences.
@@ -925,7 +931,7 @@ Also checks if delimiter is at current position."
     (when (= depth 0)
       (point))))
 
-(defun evil-tex-bora--search-forward-delimiter (delim)
+(defun evil-tex-ts--search-forward-delimiter (delim)
   "Search forward for DELIM.
 Returns position after delim if found, nil otherwise.
 Skips delimiters that are part of \\( \\) \\[ \\] sequences."
@@ -942,7 +948,7 @@ Skips delimiters that are part of \\( \\) \\[ \\] sequences."
 
 ;;; Superscript/Subscript text objects
 
-(defun evil-tex-bora--bounds-of-script-at-node (script-node script-type)
+(defun evil-tex-ts--bounds-of-script-at-node (script-node script-type)
   "Return bounds for SCRIPT-NODE of SCRIPT-TYPE.
 Helper function that extracts bounds from a known script node."
   (let* ((outer-beg (treesit-node-start script-node))
@@ -965,7 +971,7 @@ Helper function that extracts bounds from a known script node."
       (setq inner-end outer-end))
     (list outer-beg outer-end inner-beg inner-end)))
 
-(defun evil-tex-bora--find-script-forward (script-type)
+(defun evil-tex-ts--find-script-forward (script-type)
   "Search forward for nearest SCRIPT-TYPE and return its bounds.
 SCRIPT-TYPE is either \"superscript\" or \"subscript\".
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
@@ -974,11 +980,11 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
       (when (search-forward (char-to-string search-char) nil t)
         (backward-char)  ; Move back onto the ^ or _
         (when-let* ((node (treesit-node-at (point) 'latex))
-                    (script-node (evil-tex-bora--find-parent-by-type
+                    (script-node (evil-tex-ts--find-parent-by-type
                                   node (list script-type))))
-          (evil-tex-bora--bounds-of-script-at-node script-node script-type))))))
+          (evil-tex-ts--bounds-of-script-at-node script-node script-type))))))
 
-(defun evil-tex-bora--bounds-of-script (script-type)
+(defun evil-tex-ts--bounds-of-script (script-type)
   "Return bounds of superscript or subscript at or after point.
 SCRIPT-TYPE is either \"superscript\" or \"subscript\".
 Returns (outer-beg outer-end inner-beg inner-end) or nil.
@@ -993,31 +999,31 @@ Inner bounds cover the argument:
 - For commands (\\bar): the command itself"
   (or
    ;; First try: find script containing point
-   (when-let* ((node (evil-tex-bora--get-node-at-point))
-               (script-node (evil-tex-bora--find-parent-by-type
+   (when-let* ((node (evil-tex-ts--get-node-at-point))
+               (script-node (evil-tex-ts--find-parent-by-type
                              node (list script-type))))
-     (evil-tex-bora--bounds-of-script-at-node script-node script-type))
+     (evil-tex-ts--bounds-of-script-at-node script-node script-type))
    ;; Fallback: search forward for nearest script
-   (evil-tex-bora--find-script-forward script-type)))
+   (evil-tex-ts--find-script-forward script-type)))
 
-(defun evil-tex-bora--bounds-of-superscript ()
+(defun evil-tex-ts--bounds-of-superscript ()
   "Return bounds of superscript at point.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
-  (evil-tex-bora--bounds-of-script "superscript"))
+  (evil-tex-ts--bounds-of-script "superscript"))
 
-(defun evil-tex-bora--bounds-of-subscript ()
+(defun evil-tex-ts--bounds-of-subscript ()
   "Return bounds of subscript at point.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
-  (evil-tex-bora--bounds-of-script "subscript"))
+  (evil-tex-ts--bounds-of-script "subscript"))
 
 ;;; Section text objects
 
-(defconst evil-tex-bora--section-types
+(defconst evil-tex-ts--section-types
   '("part" "chapter" "section" "subsection" "subsubsection"
     "paragraph" "subparagraph")
   "List of LaTeX section node types in hierarchical order (highest first).")
 
-(defun evil-tex-bora--bounds-of-section-at-node (section-node)
+(defun evil-tex-ts--bounds-of-section-at-node (section-node)
   "Return bounds for SECTION-NODE.
 Helper function that extracts bounds from a known section node."
   (let* ((outer-beg (treesit-node-start section-node))
@@ -1029,13 +1035,13 @@ Helper function that extracts bounds from a known section node."
                       outer-beg))
          (inner-end outer-end))
     ;; Adjust inner-beg to skip newline after title if present
-    (when (and evil-tex-bora-select-newlines-with-envs
+    (when (and evil-tex-ts-select-newlines-with-envs
                (< inner-beg (point-max))
                (eq (char-after inner-beg) ?\n))
       (setq inner-beg (1+ inner-beg)))
     (list outer-beg outer-end inner-beg inner-end)))
 
-(defun evil-tex-bora--find-section-forward ()
+(defun evil-tex-ts--find-section-forward ()
   "Search forward on current line for nearest section and return its bounds.
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
   (save-excursion
@@ -1047,14 +1053,14 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
                   (re-search-forward "\\\\\\(?:part\\|chapter\\|section\\|subsection\\|subsubsection\\|paragraph\\|subparagraph\\)" line-end t))
         (goto-char (match-beginning 0))
         (when-let* ((node (treesit-node-at (point) 'latex))
-                    (section-node (evil-tex-bora--find-parent-by-type
-                                   node evil-tex-bora--section-types)))
-          (setq found (evil-tex-bora--bounds-of-section-at-node section-node)))
+                    (section-node (evil-tex-ts--find-parent-by-type
+                                   node evil-tex-ts--section-types)))
+          (setq found (evil-tex-ts--bounds-of-section-at-node section-node)))
         (unless found
           (goto-char (match-end 0))))
       found)))
 
-(defun evil-tex-bora--bounds-of-section ()
+(defun evil-tex-ts--bounds-of-section ()
   "Return bounds of LaTeX section at or after point on the same line.
 Returns (outer-beg outer-end inner-beg inner-end) or nil.
 
@@ -1068,16 +1074,16 @@ First tries to find section containing point.
 If not found, searches forward on the same line for the nearest section."
   (or
    ;; First try: find section containing point
-   (when-let* ((node (evil-tex-bora--get-node-at-point))
-               (section-node (evil-tex-bora--find-parent-by-type
-                              node evil-tex-bora--section-types)))
-     (evil-tex-bora--bounds-of-section-at-node section-node))
+   (when-let* ((node (evil-tex-ts--get-node-at-point))
+               (section-node (evil-tex-ts--find-parent-by-type
+                              node evil-tex-ts--section-types)))
+     (evil-tex-ts--bounds-of-section-at-node section-node))
    ;; Fallback: search forward on the same line
-   (evil-tex-bora--find-section-forward)))
+   (evil-tex-ts--find-section-forward)))
 
 ;;; Section navigation
 
-(defun evil-tex-bora-go-back-section (&optional count)
+(defun evil-tex-ts-go-back-section (&optional count)
   "Go back to the closest section heading.
 If COUNT is given, go COUNT sections back."
   (interactive "p")
@@ -1089,7 +1095,7 @@ If COUNT is given, go COUNT sections back."
         (backward-char))
       (re-search-backward section-regexp nil t))))
 
-(defun evil-tex-bora-go-forward-section (&optional count)
+(defun evil-tex-ts-go-forward-section (&optional count)
   "Go forward to the closest section heading.
 If COUNT is given, go COUNT sections forward."
   (interactive "p")
@@ -1105,25 +1111,25 @@ If COUNT is given, go COUNT sections forward."
 
 ;;; Section toggle
 
-(defvar evil-tex-bora-section-name-history nil
-  "History for section name changes with `evil-tex-bora-toggle-section'.")
+(defvar evil-tex-ts-section-name-history nil
+  "History for section name changes with `evil-tex-ts-toggle-section'.")
 
-(defun evil-tex-bora-toggle-section ()
+(defun evil-tex-ts-toggle-section ()
   "Change the name of the surrounding section.
 Prompts for a new section type (e.g., section -> subsection)."
   (interactive)
-  (when-let* ((bounds (evil-tex-bora--bounds-of-section))
+  (when-let* ((bounds (evil-tex-ts--bounds-of-section))
               (outer-beg (nth 0 bounds)))
     (save-excursion
       (goto-char outer-beg)
-      (when (looking-at "\\\\\\(part\\|chapter\\|sub\\(?:sub\\)?section\\|\\(?:sub\\)?paragraph\\)\\(\\*?\\)")
+      (when (looking-at "\\\\\\(part\\|chapter\\|\\(?:sub\\)*section\\|\\(?:sub\\)?paragraph\\)\\(\\*?\\)")
         (let* ((old-type (match-string 1))
                (has-star (match-string 2))
                (new-type (completing-read
                           (format "Change \\%s to: \\" old-type)
-                          evil-tex-bora--section-types
+                          evil-tex-ts--section-types
                           nil t nil
-                          'evil-tex-bora-section-name-history
+                          'evil-tex-ts-section-name-history
                           old-type)))
           (replace-match (concat "\\" new-type has-star) t t))))))
 
@@ -1134,26 +1140,26 @@ Prompts for a new section type (e.g., section -> subsection)."
 ;; environments) need explicit linewise ranges to match Vim/Evil behavior.
 
 ;; Environment text objects (ie/ae)
-(evil-define-text-object evil-tex-bora-inner-environment (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-environment (count &optional beg end type)
   "Select inner LaTeX environment."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-environment)))
-    (if (and evil-tex-bora-select-newlines-with-envs
-             (evil-tex-bora--change-operator-p))
-        (if-let ((line-bounds (evil-tex-bora--bounds-of-environment-inner-lines)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-environment)))
+    (if (and evil-tex-ts-select-newlines-with-envs
+             (evil-tex-ts--change-operator-p))
+        (if-let ((line-bounds (evil-tex-ts--bounds-of-environment-inner-lines)))
             (evil-range (car line-bounds) (cdr line-bounds) 'line)
           (list (nth 2 bounds) (nth 3 bounds)))
       (list (nth 2 bounds) (nth 3 bounds)))))
 
-(evil-define-text-object evil-tex-bora-outer-environment (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-environment (count &optional beg end type)
   "Select outer LaTeX environment."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-environment)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-environment)))
     (let ((outer-beg (nth 0 bounds))
           (outer-end (nth 1 bounds)))
       ;; Use linewise type when environment occupies whole lines
       ;; This ensures cursor lands on first non-whitespace char after 'dae'
-      (if (and evil-tex-bora-select-newlines-with-envs
+      (if (and evil-tex-ts-select-newlines-with-envs
                (save-excursion
                  (goto-char outer-beg)
                  (bolp))
@@ -1164,104 +1170,104 @@ Prompts for a new section type (e.g., section -> subsection)."
         (list outer-beg outer-end)))))
 
 ;; Command text objects (ic/ac)
-(evil-define-text-object evil-tex-bora-inner-command (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-command (count &optional beg end type)
   "Select inner LaTeX command."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-command)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-command)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-bora-outer-command (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-command (count &optional beg end type)
   "Select outer LaTeX command."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-command)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-command)))
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Math text objects (im/am)
-(evil-define-text-object evil-tex-bora-inner-math (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-math (count &optional beg end type)
   "Select inner math environment."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-math)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-math)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-bora-outer-math (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-math (count &optional beg end type)
   "Select outer math environment."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-math)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-math)))
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Delimiter text objects (id/ad)
-(evil-define-text-object evil-tex-bora-inner-delimiter (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-delimiter (count &optional beg end type)
   "Select inner delimiter."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-delimiter)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-delimiter)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-bora-outer-delimiter (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-delimiter (count &optional beg end type)
   "Select outer delimiter."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-delimiter)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-delimiter)))
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Superscript text objects (i^/a^)
-(evil-define-text-object evil-tex-bora-inner-superscript (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-superscript (count &optional beg end type)
   "Select inner superscript.
 For ^{foo}: selects foo
 For ^b: selects b
 For ^\\bar: selects \\bar"
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-superscript)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-superscript)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-bora-outer-superscript (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-superscript (count &optional beg end type)
   "Select outer superscript.
 For ^{foo}: selects ^{foo}
 For ^b: selects ^b
 For ^\\bar: selects ^\\bar"
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-superscript)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-superscript)))
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Subscript text objects (i_/a_)
-(evil-define-text-object evil-tex-bora-inner-subscript (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-subscript (count &optional beg end type)
   "Select inner subscript.
 For _{foo}: selects foo
 For _b: selects b
 For _\\bar: selects \\bar"
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-subscript)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-subscript)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-bora-outer-subscript (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-subscript (count &optional beg end type)
   "Select outer subscript.
 For _{foo}: selects _{foo}
 For _b: selects _b
 For _\\bar: selects _\\bar"
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-subscript)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-subscript)))
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Section text objects (iS/aS)
-(evil-define-text-object evil-tex-bora-inner-section (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-section (count &optional beg end type)
   "Select inner LaTeX section.
 Selects content after the section title to the end of the section."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-section)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-section)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-bora-outer-section (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-section (count &optional beg end type)
   "Select outer LaTeX section.
 Selects from \\section{...} to the end of the section."
   :extend-selection nil
-  (when-let ((bounds (evil-tex-bora--bounds-of-section)))
+  (when-let ((bounds (evil-tex-ts--bounds-of-section)))
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;;; Toggles
 
-(defun evil-tex-bora-toggle-env-asterisk ()
+(defun evil-tex-ts-toggle-env-asterisk ()
   "Toggle asterisk on current environment (e.g., equation <-> equation*).
 Toggles the asterisk in both \\begin{env} and \\end{env}."
   (interactive)
-  (when-let* ((bounds (evil-tex-bora--bounds-of-environment))
+  (when-let* ((bounds (evil-tex-ts--bounds-of-environment))
               (outer-beg (nth 0 bounds))
               (outer-end (nth 1 bounds)))
     (save-excursion
@@ -1278,7 +1284,7 @@ Toggles the asterisk in both \\begin{env} and \\end{env}."
             (delete-char 1)
           (insert "*"))))))
 
-(defun evil-tex-bora-toggle-math-mode ()
+(defun evil-tex-ts-toggle-math-mode ()
   "Toggle math mode between inline and display.
 Supports $...$, \\(...\\), and \\[...\\].
 
@@ -1286,14 +1292,14 @@ Inline to display:
   $...$     -> \\[...\\]
   \\(...\\) -> \\[...\\]
 
-Display to inline (based on `evil-tex-bora-preferred-inline-math'):
+Display to inline (based on `evil-tex-ts-preferred-inline-math'):
   \\[...\\] -> $...$ (if `dollar')
   \\[...\\] -> \\(...\\) (if `paren')
 
 When converting display to inline, multiline content is normalized:
 newlines are collapsed to single spaces."
   (interactive)
-  (when-let* ((bounds (evil-tex-bora--bounds-of-math))
+  (when-let* ((bounds (evil-tex-ts--bounds-of-math))
               (outer-beg (nth 0 bounds))
               (inner-beg (nth 2 bounds))
               (inner-end (nth 3 bounds))
@@ -1320,7 +1326,7 @@ newlines are collapsed to single spaces."
           (insert "\\["))
          ;; \[...\] -> inline (based on preference)
          ((and (string= left-delim "\\[") (string= right-delim "\\]"))
-          (let* ((use-dollar (eq evil-tex-bora-preferred-inline-math 'dollar))
+          (let* ((use-dollar (eq evil-tex-ts-preferred-inline-math 'dollar))
                  (content (buffer-substring-no-properties inner-beg inner-end))
                  (had-newlines (string-match-p "\n" content))
                  ;; Normalize content: trim and collapse newlines to spaces
@@ -1338,16 +1344,16 @@ newlines are collapsed to single spaces."
             (when had-newlines
               (message "Newlines collapsed to spaces")))))))))
 
-(defconst evil-tex-bora--size-prefix-regexp
+(defconst evil-tex-ts--size-prefix-regexp
   "\\\\\\(?:left\\|right\\|bigl\\|bigr\\|Bigl\\|Bigr\\|biggl\\|biggr\\|Biggl\\|Biggr\\|bigg\\|Bigg\\|big\\|Big\\)"
   "Regexp matching sizing prefixes like \\left, \\bigl, etc.
 Note: longer matches (bigl, bigr) must come before shorter ones (big).")
 
-(defun evil-tex-bora-toggle-delim-size ()
+(defun evil-tex-ts-toggle-delim-size ()
   "Toggle delimiter sizing (() <-> \\left(\\right)).
 Also converts \\bigl(\\bigr) etc. to plain () (one-way conversion)."
   (interactive)
-  (when-let* ((bounds (evil-tex-bora--bounds-of-delimiter))
+  (when-let* ((bounds (evil-tex-ts--bounds-of-delimiter))
               (outer-beg (nth 0 bounds))
               (inner-beg (nth 2 bounds))
               (inner-end (nth 3 bounds))
@@ -1357,11 +1363,11 @@ Also converts \\bigl(\\bigr) etc. to plain () (one-way conversion)."
       (save-excursion
         (cond
          ;; Has sizing prefix -> remove it
-         ((string-match evil-tex-bora--size-prefix-regexp left-delim)
+         ((string-match evil-tex-ts--size-prefix-regexp left-delim)
           (let ((new-left (replace-regexp-in-string
-                           evil-tex-bora--size-prefix-regexp "" left-delim))
+                           evil-tex-ts--size-prefix-regexp "" left-delim))
                 (new-right (replace-regexp-in-string
-                            evil-tex-bora--size-prefix-regexp "" right-delim)))
+                            evil-tex-ts--size-prefix-regexp "" right-delim)))
             (goto-char inner-end)
             (delete-region inner-end outer-end)
             (insert new-right)
@@ -1377,11 +1383,11 @@ Also converts \\bigl(\\bigr) etc. to plain () (one-way conversion)."
           (delete-region outer-beg inner-beg)
           (insert "\\left" left-delim)))))))
 
-(defun evil-tex-bora-toggle-cmd-asterisk ()
+(defun evil-tex-ts-toggle-cmd-asterisk ()
   "Toggle asterisk on current command (\\section <-> \\section*).
 The asterisk is placed between the command name and its arguments."
   (interactive)
-  (when-let* ((bounds (evil-tex-bora--bounds-of-command))
+  (when-let* ((bounds (evil-tex-ts--bounds-of-command))
               (outer-beg (nth 0 bounds))
               (inner-beg (nth 2 bounds)))
     (save-excursion
@@ -1396,7 +1402,7 @@ The asterisk is placed between the command name and its arguments."
          (t
           (insert "*")))))))
 
-(defun evil-tex-bora-toggle-math-align ()
+(defun evil-tex-ts-toggle-math-align ()
   "Toggle between display math and align* environment.
 
 \\(...\\), \\=\\[...\\] -> \\begin{align*}...\\end{align*}
@@ -1404,8 +1410,8 @@ The asterisk is placed between the command name and its arguments."
 
 Also works with inline math ($...$) converting to align*."
   (interactive)
-  (when-let* ((node (evil-tex-bora--get-node-at-point))
-              (math-node (evil-tex-bora--find-parent-by-type
+  (when-let* ((node (evil-tex-ts--get-node-at-point))
+              (math-node (evil-tex-ts--find-parent-by-type
                           node '("inline_formula" "displayed_equation"
                                  "math_environment"))))
     (let* ((node-type (treesit-node-type math-node))
@@ -1459,7 +1465,7 @@ Also works with inline math ($...$) converting to align*."
 
 ;;; Evil-surround integration
 
-(defun evil-tex-bora--populate-surround-keymap (keymap generator-alist prefix
+(defun evil-tex-ts--populate-surround-keymap (keymap generator-alist prefix
                                                        single-strings-fn &optional cons-fn)
   "Populate KEYMAP with keys and callbacks from GENERATOR-ALIST.
 
@@ -1489,7 +1495,7 @@ Return KEYMAP."
         (define-key keymap key val)))))
   keymap)
 
-(defun evil-tex-bora--read-with-keymap (keymap)
+(defun evil-tex-ts--read-with-keymap (keymap)
   "Prompt the user to press a key from KEYMAP.
 Return the result of the called function, or error if key not found."
   (let (key map-result)
@@ -1508,50 +1514,50 @@ Return the result of the called function, or error if key not found."
      ((functionp map-result)
       (call-interactively map-result))
      ((keymapp map-result)
-      (evil-tex-bora--read-with-keymap map-result)))))
+      (evil-tex-ts--read-with-keymap map-result)))))
 
 ;; Format functions for surround
 
-(defun evil-tex-bora-get-env-for-surrounding (env-name)
+(defun evil-tex-ts-get-env-for-surrounding (env-name)
   "Format strings for the env named ENV-NAME for surrounding.
 Return a cons of (\"\\begin{ENV-NAME}\" . \"\\end{ENV-NAME}\").
-Respect the value of `evil-tex-bora-include-newlines-in-envs'."
+Respect the value of `evil-tex-ts-include-newlines-in-envs'."
   (interactive (list (read-from-minibuffer "env: " nil minibuffer-local-ns-map)))
   (cons (format "\\begin{%s}%s"
                 env-name
-                (if evil-tex-bora-include-newlines-in-envs "\n" ""))
+                (if evil-tex-ts-include-newlines-in-envs "\n" ""))
         (format "%s\\end{%s}"
-                (if evil-tex-bora-include-newlines-in-envs "\n" "")
+                (if evil-tex-ts-include-newlines-in-envs "\n" "")
                 env-name)))
 
-(defun evil-tex-bora--format-env-cons-for-surrounding (env-cons)
+(defun evil-tex-ts--format-env-cons-for-surrounding (env-cons)
   "Format ENV-CONS for surrounding.
-Add newlines if `evil-tex-bora-include-newlines-in-envs' is t."
-  (if evil-tex-bora-include-newlines-in-envs
+Add newlines if `evil-tex-ts-include-newlines-in-envs' is t."
+  (if evil-tex-ts-include-newlines-in-envs
       (cons (concat (car env-cons) "\n") (concat "\n" (cdr env-cons)))
     env-cons))
 
-(defun evil-tex-bora--format-accent-for-surrounding (accent)
+(defun evil-tex-ts--format-accent-for-surrounding (accent)
   "Format ACCENT for surrounding: return a cons of (\\ACCENT{ . })."
   (cons (concat "\\" accent "{") "}"))
 
-(defvar evil-tex-bora--last-command-empty nil
+(defvar evil-tex-ts--last-command-empty nil
   "Non-nil if the last command text object used was empty.
 For example, \\alpha is empty, \\frac{a}{b} is not.")
 
-(defun evil-tex-bora--format-command-for-surrounding (command)
+(defun evil-tex-ts--format-command-for-surrounding (command)
   "Format COMMAND for surrounding: return a cons of (\\COMMAND{ . })."
-  (if evil-tex-bora--last-command-empty
+  (if evil-tex-ts--last-command-empty
       (cons (concat "\\" command "") "")
     (cons (concat "\\" command "{") "}")))
 
-(defun evil-tex-bora--surround-inline-math ()
-  "Return surround pair for inline math based on `evil-tex-bora-preferred-inline-math'."
-  (if (eq evil-tex-bora-preferred-inline-math 'dollar)
+(defun evil-tex-ts--surround-inline-math ()
+  "Return surround pair for inline math based on `evil-tex-ts-preferred-inline-math'."
+  (if (eq evil-tex-ts-preferred-inline-math 'dollar)
       '("$" . "$")
     '("\\(" . "\\)")))
 
-(defun evil-tex-bora--normalize-inline-math-region (beg end)
+(defun evil-tex-ts--normalize-inline-math-region (beg end)
   "Normalize region BEG END for inline math: trim and collapse newlines to spaces.
 Returns (NEW-END INDENT-STRING HAD-TRAILING-NEWLINE)."
   (save-excursion
@@ -1587,7 +1593,7 @@ Returns (NEW-END INDENT-STRING HAD-TRAILING-NEWLINE)."
             (setq end (- end (1- match-len)))))
         (list end indent-string had-trailing-newline)))))
 
-(defun evil-tex-bora--surround-region-advice (orig-fn beg end type char &optional force-new-line)
+(defun evil-tex-ts--surround-region-advice (orig-fn beg end type char &optional force-new-line)
   "Advice for `evil-surround-region' to normalize regions for inline math, commands, and accents.
 Normalizes the region (trims and collapses newlines) when surrounding with inline math,
 commands, CDLaTeX accents, superscript, or subscript. For linewise selections, changes
@@ -1602,11 +1608,11 @@ For environments (?e): line breaks are added when surrounding partial lines."
         is-inline-math is-command is-env is-cdlatex-accent is-super-or-subscript
         ;; For environment: remember if there's text before/after on the same line
         env-has-text-before env-has-text-after env-indent env-is-linewise)
-    (setq is-inline-math (and evil-tex-bora-mode (eq char ?m)))
-    (setq is-command (and evil-tex-bora-mode (eq char ?c)))
-    (setq is-env (and evil-tex-bora-mode (eq char ?e)))
-    (setq is-cdlatex-accent (and evil-tex-bora-mode (eq char ?\;)))
-    (setq is-super-or-subscript (and evil-tex-bora-mode (memq char '(?^ ?_))))
+    (setq is-inline-math (and evil-tex-ts-mode (eq char ?m)))
+    (setq is-command (and evil-tex-ts-mode (eq char ?c)))
+    (setq is-env (and evil-tex-ts-mode (eq char ?e)))
+    (setq is-cdlatex-accent (and evil-tex-ts-mode (eq char ?\;)))
+    (setq is-super-or-subscript (and evil-tex-ts-mode (memq char '(?^ ?_))))
     ;; For environment: check if surrounding partial line (not linewise)
     (when (and is-env (not (eq type 'line)))
       (save-excursion
@@ -1646,7 +1652,7 @@ For environments (?e): line breaks are added when surrounding partial lines."
       ;; Save cursor position (line and column)
       (setq original-line (line-number-at-pos))
       (setq original-col (current-column))
-      (let ((result (evil-tex-bora--normalize-inline-math-region beg end)))
+      (let ((result (evil-tex-ts--normalize-inline-math-region beg end)))
         (setq end (nth 0 result))
         (setq indent-string (nth 1 result))
         (setq had-trailing-newline (nth 2 result))
@@ -1713,7 +1719,7 @@ For environments (?e): line breaks are added when surrounding partial lines."
                   (insert normalized))))))))
     ;; Post-process for inline math: add indent before and newline after
     (when is-inline-math
-      (let ((delim-pair (evil-tex-bora--surround-inline-math)))
+      (let ((delim-pair (evil-tex-ts--surround-inline-math)))
         (save-excursion
           ;; Add trailing newline after the closing delimiter FIRST
           ;; (before adding indent, so positions are simpler)
@@ -1737,27 +1743,27 @@ For environments (?e): line breaks are added when surrounding partial lines."
 
 ;; Environment keymap for surround
 
-(defvar evil-tex-bora-env-map (make-sparse-keymap)
+(defvar evil-tex-ts-env-map (make-sparse-keymap)
   "Keymap for surrounding with environments.")
 
-(defun evil-tex-bora-bind-to-env-map (key-generator-alist &optional keymap)
-  "Bind envs from KEY-GENERATOR-ALIST to `evil-tex-bora-env-map' or KEYMAP.
+(defun evil-tex-ts-bind-to-env-map (key-generator-alist &optional keymap)
+  "Bind envs from KEY-GENERATOR-ALIST to `evil-tex-ts-env-map' or KEYMAP.
 
 Each item is a cons (KEY . VALUE):
 - String VALUE: inserted env with that name
 - Cons VALUE: text wrapped between car and cdr
 - Function VALUE: called to get the cons"
-  (evil-tex-bora--populate-surround-keymap
-   (or keymap evil-tex-bora-env-map)
+  (evil-tex-ts--populate-surround-keymap
+   (or keymap evil-tex-ts-env-map)
    key-generator-alist
-   "evil-tex-bora-envs---"
-   #'evil-tex-bora-get-env-for-surrounding
-   #'evil-tex-bora--format-env-cons-for-surrounding))
+   "evil-tex-ts-envs---"
+   #'evil-tex-ts-get-env-for-surrounding
+   #'evil-tex-ts--format-env-cons-for-surrounding))
 
-(setq evil-tex-bora-env-map
+(setq evil-tex-ts-env-map
       (let ((keymap (make-sparse-keymap)))
-        (evil-tex-bora-bind-to-env-map
-         '(("x" . evil-tex-bora-get-env-for-surrounding)
+        (evil-tex-ts-bind-to-env-map
+         '(("x" . evil-tex-ts-get-env-for-surrounding)
            ("e" . "equation")
            ("E" . "equation*")
            ("f" . "figure")
@@ -1795,69 +1801,69 @@ Each item is a cons (KEY . VALUE):
 
 ;; CDLaTeX accents keymap for surround
 
-(defun evil-tex-bora--texmathp ()
+(defun evil-tex-ts--texmathp ()
   "Return non-nil if point is inside a math environment.
 Uses tree-sitter to check for math context."
-  (when-let* ((node (evil-tex-bora--get-node-at-point)))
-    (evil-tex-bora--find-parent-by-type
+  (when-let* ((node (evil-tex-ts--get-node-at-point)))
+    (evil-tex-ts--find-parent-by-type
      node '("inline_formula" "displayed_equation" "math_environment"))))
 
-(defun evil-tex-bora-cdlatex-accents---rm ()
+(defun evil-tex-ts-cdlatex-accents---rm ()
   "Return surround pair for rm style text."
   (interactive)
-  (if (evil-tex-bora--texmathp)
+  (if (evil-tex-ts--texmathp)
       '("\\mathrm{" . "}")
     '("\\textrm{" . "}")))
 
-(defun evil-tex-bora-cdlatex-accents---it ()
+(defun evil-tex-ts-cdlatex-accents---it ()
   "Return surround pair for italic style text."
   (interactive)
-  (if (evil-tex-bora--texmathp)
+  (if (evil-tex-ts--texmathp)
       '("\\mathit{" . "}")
     '("\\textit{" . "}")))
 
-(defun evil-tex-bora-cdlatex-accents---bf ()
+(defun evil-tex-ts-cdlatex-accents---bf ()
   "Return surround pair for bold style text."
   (interactive)
-  (if (evil-tex-bora--texmathp)
+  (if (evil-tex-ts--texmathp)
       '("\\mathbf{" . "}")
     '("\\textbf{" . "}")))
 
-(defun evil-tex-bora-cdlatex-accents---emph ()
+(defun evil-tex-ts-cdlatex-accents---emph ()
   "Return surround pair for emphasized text."
   (interactive)
-  (if (evil-tex-bora--texmathp)
+  (if (evil-tex-ts--texmathp)
       '("\\mathem{" . "}")
     '("\\emph{" . "}")))
 
-(defun evil-tex-bora-cdlatex-accents---tt ()
+(defun evil-tex-ts-cdlatex-accents---tt ()
   "Return surround pair for typewriter style text."
   (interactive)
-  (if (evil-tex-bora--texmathp)
+  (if (evil-tex-ts--texmathp)
       '("\\mathtt{" . "}")
     '("\\texttt{" . "}")))
 
-(defun evil-tex-bora-cdlatex-accents---sf ()
+(defun evil-tex-ts-cdlatex-accents---sf ()
   "Return surround pair for sans-serif style text."
   (interactive)
-  (if (evil-tex-bora--texmathp)
+  (if (evil-tex-ts--texmathp)
       '("\\mathsf{" . "}")
     '("\\textsf{" . "}")))
 
-(defvar evil-tex-bora-cdlatex-accents-map (make-sparse-keymap)
+(defvar evil-tex-ts-cdlatex-accents-map (make-sparse-keymap)
   "Keymap for surrounding with cdlatex-style accents.")
 
-(defun evil-tex-bora-bind-to-cdlatex-accents-map (key-generator-alist &optional keymap)
-  "Bind accent macros from KEY-GENERATOR-ALIST to `evil-tex-bora-cdlatex-accents-map'."
-  (evil-tex-bora--populate-surround-keymap
-   (or keymap evil-tex-bora-cdlatex-accents-map)
+(defun evil-tex-ts-bind-to-cdlatex-accents-map (key-generator-alist &optional keymap)
+  "Bind accent macros from KEY-GENERATOR-ALIST to `evil-tex-ts-cdlatex-accents-map'."
+  (evil-tex-ts--populate-surround-keymap
+   (or keymap evil-tex-ts-cdlatex-accents-map)
    key-generator-alist
-   "evil-tex-bora-cdlatex-accents---"
-   #'evil-tex-bora--format-accent-for-surrounding))
+   "evil-tex-ts-cdlatex-accents---"
+   #'evil-tex-ts--format-accent-for-surrounding))
 
-(setq evil-tex-bora-cdlatex-accents-map
+(setq evil-tex-ts-cdlatex-accents-map
       (let ((keymap (make-sparse-keymap)))
-        (evil-tex-bora-bind-to-cdlatex-accents-map
+        (evil-tex-ts-bind-to-cdlatex-accents-map
          '(("." . "dot")
            (":" . "ddot")
            ("~" . "tilde")
@@ -1877,13 +1883,13 @@ Uses tree-sitter to check for math context."
            ("m" . "mbox")
            ("c" . "mathcal")
            ("q" . "sqrt")
-           ("r" . evil-tex-bora-cdlatex-accents---rm)
-           ("i" . evil-tex-bora-cdlatex-accents---it)
+           ("r" . evil-tex-ts-cdlatex-accents---rm)
+           ("i" . evil-tex-ts-cdlatex-accents---it)
            ("l" . "textsl")
-           ("b" . evil-tex-bora-cdlatex-accents---bf)
-           ("e" . evil-tex-bora-cdlatex-accents---emph)
-           ("y" . evil-tex-bora-cdlatex-accents---tt)
-           ("f" . evil-tex-bora-cdlatex-accents---sf)
+           ("b" . evil-tex-ts-cdlatex-accents---bf)
+           ("e" . evil-tex-ts-cdlatex-accents---emph)
+           ("y" . evil-tex-ts-cdlatex-accents---tt)
+           ("f" . evil-tex-ts-cdlatex-accents---sf)
            ("0" . ("{\\textstyle " . "}"))
            ("1" . ("{\\displaystyle " . "}"))
            ("2" . ("{\\scriptstyle " . "}"))
@@ -1893,20 +1899,20 @@ Uses tree-sitter to check for math context."
 
 ;; Delimiter keymap for surround
 
-(defvar evil-tex-bora-delim-map (make-sparse-keymap)
+(defvar evil-tex-ts-delim-map (make-sparse-keymap)
   "Keymap for surrounding with delimiters.")
 
-(defun evil-tex-bora-bind-to-delim-map (key-generator-alist &optional keymap)
-  "Bind delimiters from KEY-GENERATOR-ALIST to `evil-tex-bora-delim-map'."
-  (evil-tex-bora--populate-surround-keymap
-   (or keymap evil-tex-bora-delim-map)
+(defun evil-tex-ts-bind-to-delim-map (key-generator-alist &optional keymap)
+  "Bind delimiters from KEY-GENERATOR-ALIST to `evil-tex-ts-delim-map'."
+  (evil-tex-ts--populate-surround-keymap
+   (or keymap evil-tex-ts-delim-map)
    key-generator-alist
-   "evil-tex-bora-delims---"
+   "evil-tex-ts-delims---"
    #'identity))
 
-(setq evil-tex-bora-delim-map
+(setq evil-tex-ts-delim-map
       (let ((keymap (make-sparse-keymap)))
-        (evil-tex-bora-bind-to-delim-map
+        (evil-tex-ts-bind-to-delim-map
          '(("P" "(" . ")")
            ("p" "\\left(" . "\\right)")
            ("S" "[" . "]")
@@ -1924,32 +1930,32 @@ Uses tree-sitter to check for math context."
 
 ;; Prompt functions for surround
 
-(defun evil-tex-bora-surround-env-prompt ()
-  "Prompt user for an env to surround with using `evil-tex-bora-env-map'."
-  (evil-tex-bora--read-with-keymap evil-tex-bora-env-map))
+(defun evil-tex-ts-surround-env-prompt ()
+  "Prompt user for an env to surround with using `evil-tex-ts-env-map'."
+  (evil-tex-ts--read-with-keymap evil-tex-ts-env-map))
 
-(defun evil-tex-bora-surround-cdlatex-accents-prompt ()
-  "Prompt user for an accent to surround with using `evil-tex-bora-cdlatex-accents-map'."
-  (evil-tex-bora--read-with-keymap evil-tex-bora-cdlatex-accents-map))
+(defun evil-tex-ts-surround-cdlatex-accents-prompt ()
+  "Prompt user for an accent to surround with using `evil-tex-ts-cdlatex-accents-map'."
+  (evil-tex-ts--read-with-keymap evil-tex-ts-cdlatex-accents-map))
 
-(defun evil-tex-bora-surround-delim-prompt ()
-  "Prompt user for a delimiter to surround with using `evil-tex-bora-delim-map'."
-  (evil-tex-bora--read-with-keymap evil-tex-bora-delim-map))
+(defun evil-tex-ts-surround-delim-prompt ()
+  "Prompt user for a delimiter to surround with using `evil-tex-ts-delim-map'."
+  (evil-tex-ts--read-with-keymap evil-tex-ts-delim-map))
 
-(defun evil-tex-bora-surround-command-prompt ()
+(defun evil-tex-ts-surround-command-prompt ()
   "Ask the user for the command they'd like to surround with."
-  (evil-tex-bora--format-command-for-surrounding
+  (evil-tex-ts--format-command-for-surrounding
    (read-from-minibuffer "command: \\" nil minibuffer-local-ns-map)))
 
 ;; Surround delimiters alist
 
-(defvar evil-tex-bora-surround-delimiters
-  `((?m . ,#'evil-tex-bora--surround-inline-math)
+(defvar evil-tex-ts-surround-delimiters
+  `((?m . ,#'evil-tex-ts--surround-inline-math)
     (?M "\\[" . "\\]")
-    (?c . ,#'evil-tex-bora-surround-command-prompt)
-    (?e . ,#'evil-tex-bora-surround-env-prompt)
-    (?d . ,#'evil-tex-bora-surround-delim-prompt)
-    (?\; . ,#'evil-tex-bora-surround-cdlatex-accents-prompt)
+    (?c . ,#'evil-tex-ts-surround-command-prompt)
+    (?e . ,#'evil-tex-ts-surround-env-prompt)
+    (?d . ,#'evil-tex-ts-surround-delim-prompt)
+    (?\; . ,#'evil-tex-ts-surround-cdlatex-accents-prompt)
     (?q "`" . "'")
     (?Q "``" . "''")
     (?^ "^{" . "}")
@@ -1958,7 +1964,7 @@ Uses tree-sitter to check for math context."
   "Delimiter pairs for `evil-surround'.
 
 Each element is (CHAR LEFT-DELIM . RIGHT-DELIM) or (CHAR . FUNCTION).
-- m: inline math (uses `evil-tex-bora-preferred-inline-math': $...$ or \\(...\\))
+- m: inline math (uses `evil-tex-ts-preferred-inline-math': $...$ or \\(...\\))
 - M: display math \\[...\\]
 - c: command (prompts for name)
 - e: environment (prompts with keymap)
@@ -1972,184 +1978,271 @@ Each element is (CHAR LEFT-DELIM . RIGHT-DELIM) or (CHAR . FUNCTION).
 
 ;; Text object keymaps for surround
 
-(defvar evil-tex-bora-inner-text-objects-map (make-sparse-keymap)
-  "Inner text object keymap for `evil-tex-bora'.")
+(defvar evil-tex-ts-inner-text-objects-map (make-sparse-keymap)
+  "Inner text object keymap for `evil-tex-ts'.")
 
-(defvar evil-tex-bora-outer-text-objects-map (make-sparse-keymap)
-  "Outer text object keymap for `evil-tex-bora'.")
+(defvar evil-tex-ts-outer-text-objects-map (make-sparse-keymap)
+  "Outer text object keymap for `evil-tex-ts'.")
 
 ;; Setup functions
 
-(defun evil-tex-bora-set-up-surround ()
+(defun evil-tex-ts-set-up-surround ()
   "Configure evil-surround for LaTeX editing.
 Things like 'csm' (change surrounding math) will work after this."
   (setq-local evil-surround-pairs-alist
-              (append evil-tex-bora-surround-delimiters evil-surround-pairs-alist))
+              (append evil-tex-ts-surround-delimiters evil-surround-pairs-alist))
   ;; Use local text object maps if evil-surround supports it
   (when (and (boundp 'evil-surround-local-inner-text-object-map-list)
              (boundp 'evil-surround-local-outer-text-object-map-list))
     (add-to-list 'evil-surround-local-inner-text-object-map-list
-                 evil-tex-bora-inner-text-objects-map)
+                 evil-tex-ts-inner-text-objects-map)
     (add-to-list 'evil-surround-local-outer-text-object-map-list
-                 evil-tex-bora-outer-text-objects-map))
+                 evil-tex-ts-outer-text-objects-map))
   ;; Add advice for normalizing inline math regions
-  (advice-add 'evil-surround-region :around #'evil-tex-bora--surround-region-advice))
+  (advice-add 'evil-surround-region :around #'evil-tex-ts--surround-region-advice))
 
-(defun evil-tex-bora-set-up-embrace ()
+(defun evil-tex-ts-set-up-embrace ()
   "Configure evil-embrace not to steal our evil-surround keybinds."
   (setq-local evil-embrace-evil-surround-keys
               (append
-               (mapcar #'car evil-tex-bora-surround-delimiters)
+               (mapcar #'car evil-tex-ts-surround-delimiters)
                evil-embrace-evil-surround-keys)))
 
 ;; Populate text object keymaps
 (with-eval-after-load 'evil
   ;; Inner text objects
-  (define-key evil-tex-bora-inner-text-objects-map "e" #'evil-tex-bora-inner-environment)
-  (define-key evil-tex-bora-inner-text-objects-map "c" #'evil-tex-bora-inner-command)
-  (define-key evil-tex-bora-inner-text-objects-map "m" #'evil-tex-bora-inner-math)
-  (define-key evil-tex-bora-inner-text-objects-map "d" #'evil-tex-bora-inner-delimiter)
-  (define-key evil-tex-bora-inner-text-objects-map "^" #'evil-tex-bora-inner-superscript)
-  (define-key evil-tex-bora-inner-text-objects-map "_" #'evil-tex-bora-inner-subscript)
-  (define-key evil-tex-bora-inner-text-objects-map "S" #'evil-tex-bora-inner-section)
+  (define-key evil-tex-ts-inner-text-objects-map "e" #'evil-tex-ts-inner-environment)
+  (define-key evil-tex-ts-inner-text-objects-map "c" #'evil-tex-ts-inner-command)
+  (define-key evil-tex-ts-inner-text-objects-map "m" #'evil-tex-ts-inner-math)
+  (define-key evil-tex-ts-inner-text-objects-map "d" #'evil-tex-ts-inner-delimiter)
+  (define-key evil-tex-ts-inner-text-objects-map "^" #'evil-tex-ts-inner-superscript)
+  (define-key evil-tex-ts-inner-text-objects-map "_" #'evil-tex-ts-inner-subscript)
+  (define-key evil-tex-ts-inner-text-objects-map "S" #'evil-tex-ts-inner-section)
   ;; Outer text objects
-  (define-key evil-tex-bora-outer-text-objects-map "e" #'evil-tex-bora-outer-environment)
-  (define-key evil-tex-bora-outer-text-objects-map "c" #'evil-tex-bora-outer-command)
-  (define-key evil-tex-bora-outer-text-objects-map "m" #'evil-tex-bora-outer-math)
-  (define-key evil-tex-bora-outer-text-objects-map "d" #'evil-tex-bora-outer-delimiter)
-  (define-key evil-tex-bora-outer-text-objects-map "^" #'evil-tex-bora-outer-superscript)
-  (define-key evil-tex-bora-outer-text-objects-map "_" #'evil-tex-bora-outer-subscript)
-  (define-key evil-tex-bora-outer-text-objects-map "S" #'evil-tex-bora-outer-section))
+  (define-key evil-tex-ts-outer-text-objects-map "e" #'evil-tex-ts-outer-environment)
+  (define-key evil-tex-ts-outer-text-objects-map "c" #'evil-tex-ts-outer-command)
+  (define-key evil-tex-ts-outer-text-objects-map "m" #'evil-tex-ts-outer-math)
+  (define-key evil-tex-ts-outer-text-objects-map "d" #'evil-tex-ts-outer-delimiter)
+  (define-key evil-tex-ts-outer-text-objects-map "^" #'evil-tex-ts-outer-superscript)
+  (define-key evil-tex-ts-outer-text-objects-map "_" #'evil-tex-ts-outer-subscript)
+  (define-key evil-tex-ts-outer-text-objects-map "S" #'evil-tex-ts-outer-section))
 
 ;; Shorten which-key descriptions
 (with-eval-after-load 'which-key
   (push
-   '(("\\`." . "evil-tex-bora-.*---\\(.*\\)") . (nil . "\\1"))
+   '(("\\`." . "evil-tex-ts-.*---\\(.*\\)") . (nil . "\\1"))
    which-key-replacement-alist))
+
+;;; evil-surround integration
+
+(defvar evil-tex-ts-section-name-history-surround nil
+  "History for section name selection in surround operations.")
+
+(defun evil-tex-ts--format-section-for-surround (section-type)
+  "Format SECTION-TYPE for evil-surround.
+Returns a cons of (opening . closing) strings."
+  (cons (concat "\\" section-type "{") "}"))
+
+(defun evil-tex-ts-surround-section-prompt ()
+  "Prompt user for a section type to surround with.
+Returns a cons of (opening . closing) strings for evil-surround."
+  (let ((section-type (completing-read
+                       "Section type: \\"
+                       evil-tex-ts--section-types
+                       nil t nil
+                       'evil-tex-ts-section-name-history-surround
+                       "section")))
+    (evil-tex-ts--format-section-for-surround section-type)))
+
+(defun evil-tex-ts--format-env-for-surround (env-name)
+  "Format ENV-NAME for evil-surround.
+Returns a cons of (opening . closing) strings."
+  (cons (format "\\begin{%s}\n" env-name)
+        (format "\n\\end{%s}" env-name)))
+
+(defvar evil-tex-ts-env-name-history nil
+  "History for environment name selection in surround operations.")
+
+(defun evil-tex-ts-surround-env-prompt ()
+  "Prompt user for an environment name to surround with.
+Returns a cons of (opening . closing) strings for evil-surround."
+  (let ((env-name (read-string "Environment: " nil 'evil-tex-ts-env-name-history)))
+    (evil-tex-ts--format-env-for-surround env-name)))
+
+(defun evil-tex-ts--format-command-for-surround (command)
+  "Format COMMAND for evil-surround.
+Returns a cons of (opening . closing) strings."
+  (cons (concat "\\" command "{") "}"))
+
+(defun evil-tex-ts-surround-command-prompt ()
+  "Prompt user for a command name to surround with.
+Returns a cons of (opening . closing) strings for evil-surround."
+  (let ((command (read-string "Command: \\" nil)))
+    (evil-tex-ts--format-command-for-surround command)))
+
+(defvar evil-tex-ts-surround-delimiters
+  `((?m "\\(" . "\\)")
+    (?M "\\[" . "\\]")
+    (?c . ,#'evil-tex-ts-surround-command-prompt)
+    (?e . ,#'evil-tex-ts-surround-env-prompt)
+    (?S . ,#'evil-tex-ts-surround-section-prompt)
+    (?^ "^{" . "}")
+    (?_ "_{" . "}"))
+  "Delimiter pairs for `evil-surround'.")
+
+(defun evil-tex-ts-set-up-surround ()
+  "Configure evil-surround for LaTeX editing.
+Adds LaTeX-specific surround pairs like environments, commands, and sections."
+  (when (boundp 'evil-surround-pairs-alist)
+    (setq-local evil-surround-pairs-alist
+                (append evil-tex-ts-surround-delimiters evil-surround-pairs-alist)))
+  ;; Register our text object maps with evil-surround
+  (when (and (boundp 'evil-surround-local-inner-text-object-map-list)
+             (boundp 'evil-surround-local-outer-text-object-map-list))
+    (add-to-list 'evil-surround-local-inner-text-object-map-list
+                 evil-tex-ts-inner-text-objects-map)
+    (add-to-list 'evil-surround-local-outer-text-object-map-list
+                 evil-tex-ts-outer-text-objects-map)))
+
+(defun evil-tex-ts-set-up-embrace ()
+  "Configure evil-embrace not to steal our evil-surround keybinds."
+  (when (boundp 'evil-embrace-evil-surround-keys)
+    (setq-local evil-embrace-evil-surround-keys
+                (append
+                 (delq nil (mapcar (lambda (x) (when (characterp (car x)) (car x)))
+                                   evil-tex-ts-surround-delimiters))
+                 evil-embrace-evil-surround-keys))))
 
 ;;; Keymap
 
-(defvar evil-tex-bora-toggle-map
+(defvar evil-tex-ts-toggle-map
   (let ((map (make-sparse-keymap)))
-    (define-key map "e" #'evil-tex-bora-toggle-env-asterisk)
-    (define-key map "m" #'evil-tex-bora-toggle-math-mode)
-    (define-key map "M" #'evil-tex-bora-toggle-math-align)
-    (define-key map "d" #'evil-tex-bora-toggle-delim-size)
-    (define-key map "c" #'evil-tex-bora-toggle-cmd-asterisk)
-    (define-key map "S" #'evil-tex-bora-toggle-section)
+    (define-key map "e" #'evil-tex-ts-toggle-env-asterisk)
+    (define-key map "m" #'evil-tex-ts-toggle-math-mode)
+    (define-key map "M" #'evil-tex-ts-toggle-math-align)
+    (define-key map "d" #'evil-tex-ts-toggle-delim-size)
+    (define-key map "c" #'evil-tex-ts-toggle-cmd-asterisk)
+    (define-key map "S" #'evil-tex-ts-toggle-section)
     map)
-  "Keymap for evil-tex-bora toggle commands.
+  "Keymap for evil-tex-ts toggle commands.
 Bound to `mt' or `ts' prefix depending on configuration.")
 
-(defvar evil-tex-bora-mode-map
+(defvar evil-tex-ts-mode-map
   (make-sparse-keymap)
-  "Keymap for `evil-tex-bora-mode'.")
+  "Keymap for `evil-tex-ts-mode'.")
 
-(defun evil-tex-bora--setup-toggle-keybindings ()
+(defun evil-tex-ts--setup-toggle-keybindings ()
   "Setup toggle keybindings based on customization options.
-Call this after changing `evil-tex-bora-toggle-override-m' or
-`evil-tex-bora-toggle-override-t'."
+Call this after changing `evil-tex-ts-toggle-override-m' or
+`evil-tex-ts-toggle-override-t'."
   (when (boundp 'evil-normal-state-local-map)
     ;; Bind to mt* if enabled
-    (when evil-tex-bora-toggle-override-m
-      (evil-define-key 'normal evil-tex-bora-mode-map
-        "mt" evil-tex-bora-toggle-map))
+    (when evil-tex-ts-toggle-override-m
+      (evil-define-key 'normal evil-tex-ts-mode-map
+        "mt" evil-tex-ts-toggle-map))
     ;; Bind to ts* if enabled
-    (when evil-tex-bora-toggle-override-t
-      (evil-define-key 'normal evil-tex-bora-mode-map
-        "ts" evil-tex-bora-toggle-map))))
+    (when evil-tex-ts-toggle-override-t
+      (evil-define-key 'normal evil-tex-ts-mode-map
+        "ts" evil-tex-ts-toggle-map))))
 
 ;;; Minor mode
 
-(defvar evil-tex-bora--pending-first-non-blank nil
+(defvar evil-tex-ts--pending-first-non-blank nil
   "When non-nil, move to first non-blank after current command.")
 
-(defun evil-tex-bora--post-command-first-non-blank ()
+(defun evil-tex-ts--post-command-first-non-blank ()
   "Move cursor to first non-blank character if pending."
-  (when evil-tex-bora--pending-first-non-blank
-    (setq evil-tex-bora--pending-first-non-blank nil)
+  (when evil-tex-ts--pending-first-non-blank
+    (setq evil-tex-ts--pending-first-non-blank nil)
     (back-to-indentation)))
 
-(defun evil-tex-bora--delete-advice (orig-fn beg end &optional type &rest args)
+(defun evil-tex-ts--delete-advice (orig-fn beg end &optional type &rest args)
   "Advice for `evil-delete' to ensure cursor moves to first non-blank.
 After linewise deletion of environment, move cursor to indentation.
-Only active in buffers where `evil-tex-bora-mode' is enabled."
-  (let ((was-line-type (and evil-tex-bora-mode (eq type 'line))))
+Only active in buffers where `evil-tex-ts-mode' is enabled."
+  (let ((was-line-type (and evil-tex-ts-mode (eq type 'line))))
     (apply orig-fn beg end type args)
     (when was-line-type
-      (setq evil-tex-bora--pending-first-non-blank t))))
+      (setq evil-tex-ts--pending-first-non-blank t))))
 
-(defun evil-tex-bora--setup-text-objects ()
-  "Setup text objects for evil-tex-bora.
+(defun evil-tex-ts--setup-text-objects ()
+  "Setup text objects for evil-tex-ts.
 Binds text objects to Evil's inner/outer text object maps.
-These bindings are global but the functions check if evil-tex-bora-mode is active."
+These bindings are global but the functions check if evil-tex-ts-mode is active."
   (when (and (boundp 'evil-inner-text-objects-map)
              (boundp 'evil-outer-text-objects-map))
     ;; Inner text objects (used with 'i' prefix, e.g., vic, vie)
-    (define-key evil-inner-text-objects-map "e" #'evil-tex-bora-inner-environment)
-    (define-key evil-inner-text-objects-map "c" #'evil-tex-bora-inner-command)
-    (define-key evil-inner-text-objects-map "m" #'evil-tex-bora-inner-math)
-    (define-key evil-inner-text-objects-map "d" #'evil-tex-bora-inner-delimiter)
-    (define-key evil-inner-text-objects-map "^" #'evil-tex-bora-inner-superscript)
-    (define-key evil-inner-text-objects-map "_" #'evil-tex-bora-inner-subscript)
-    (define-key evil-inner-text-objects-map "S" #'evil-tex-bora-inner-section)
+    (define-key evil-inner-text-objects-map "e" #'evil-tex-ts-inner-environment)
+    (define-key evil-inner-text-objects-map "c" #'evil-tex-ts-inner-command)
+    (define-key evil-inner-text-objects-map "m" #'evil-tex-ts-inner-math)
+    (define-key evil-inner-text-objects-map "d" #'evil-tex-ts-inner-delimiter)
+    (define-key evil-inner-text-objects-map "^" #'evil-tex-ts-inner-superscript)
+    (define-key evil-inner-text-objects-map "_" #'evil-tex-ts-inner-subscript)
+    (define-key evil-inner-text-objects-map "S" #'evil-tex-ts-inner-section)
     ;; Outer text objects (used with 'a' prefix, e.g., vac, vae)
-    (define-key evil-outer-text-objects-map "e" #'evil-tex-bora-outer-environment)
-    (define-key evil-outer-text-objects-map "c" #'evil-tex-bora-outer-command)
-    (define-key evil-outer-text-objects-map "m" #'evil-tex-bora-outer-math)
-    (define-key evil-outer-text-objects-map "d" #'evil-tex-bora-outer-delimiter)
-    (define-key evil-outer-text-objects-map "^" #'evil-tex-bora-outer-superscript)
-    (define-key evil-outer-text-objects-map "_" #'evil-tex-bora-outer-subscript)
-    (define-key evil-outer-text-objects-map "S" #'evil-tex-bora-outer-section)))
+    (define-key evil-outer-text-objects-map "e" #'evil-tex-ts-outer-environment)
+    (define-key evil-outer-text-objects-map "c" #'evil-tex-ts-outer-command)
+    (define-key evil-outer-text-objects-map "m" #'evil-tex-ts-outer-math)
+    (define-key evil-outer-text-objects-map "d" #'evil-tex-ts-outer-delimiter)
+    (define-key evil-outer-text-objects-map "^" #'evil-tex-ts-outer-superscript)
+    (define-key evil-outer-text-objects-map "_" #'evil-tex-ts-outer-subscript)
+    (define-key evil-outer-text-objects-map "S" #'evil-tex-ts-outer-section)))
 
-(defun evil-tex-bora--setup-section-navigation ()
+(defun evil-tex-ts--setup-section-navigation ()
   "Setup section navigation keybindings.
 Binds [[ and ]] for section navigation in normal and visual states."
-  (evil-define-key 'normal evil-tex-bora-mode-map
-    "[[" #'evil-tex-bora-go-back-section
-    "]]" #'evil-tex-bora-go-forward-section)
-  (evil-define-key 'visual evil-tex-bora-mode-map
-    "[[" #'evil-tex-bora-go-back-section
-    "]]" #'evil-tex-bora-go-forward-section))
+  (evil-define-key 'normal evil-tex-ts-mode-map
+    "[[" #'evil-tex-ts-go-back-section
+    "]]" #'evil-tex-ts-go-forward-section)
+  (evil-define-key 'visual evil-tex-ts-mode-map
+    "[[" #'evil-tex-ts-go-back-section
+    "]]" #'evil-tex-ts-go-forward-section))
 
 ;; Setup text objects and toggle keybindings when package is loaded (after evil)
 (with-eval-after-load 'evil
-  (evil-tex-bora--setup-text-objects)
-  (evil-tex-bora--setup-toggle-keybindings)
-  (evil-tex-bora--setup-section-navigation))
+  (evil-tex-ts--setup-text-objects)
+  (evil-tex-ts--setup-toggle-keybindings)
+  (evil-tex-ts--setup-section-navigation))
 
 ;;;###autoload
-(define-minor-mode evil-tex-bora-mode
+(define-minor-mode evil-tex-ts-mode
   "Minor mode for LaTeX text objects using tree-sitter."
   :lighter " ETB"
-  :keymap evil-tex-bora-mode-map
-  (if evil-tex-bora-mode
+  :keymap evil-tex-ts-mode-map
+  (if evil-tex-ts-mode
       (progn
-        (unless (evil-tex-bora--ensure-parser)
+        (unless (evil-tex-ts--ensure-parser)
           (user-error "Tree-sitter LaTeX parser not available"))
         ;; Ensure treesit parser is created for this buffer
         (treesit-parser-create 'latex)
         ;; Add hook for cursor positioning after linewise delete
-        (add-hook 'post-command-hook #'evil-tex-bora--post-command-first-non-blank nil t)
+        (add-hook 'post-command-hook #'evil-tex-ts--post-command-first-non-blank nil t)
         ;; Setup evil-surround integration
-        (when (require 'evil-surround nil t)
-          (evil-tex-bora-set-up-surround))
+        (when (featurep 'evil-surround)
+          (evil-tex-ts-set-up-surround))
         ;; Setup evil-embrace integration
         (when (require 'evil-embrace nil t)
-          (evil-tex-bora-set-up-embrace)))
+          (evil-tex-ts-set-up-embrace)))
     ;; Cleanup when mode is disabled
-    (remove-hook 'post-command-hook #'evil-tex-bora--post-command-first-non-blank t)))
+    (remove-hook 'post-command-hook #'evil-tex-ts--post-command-first-non-blank t)))
 
-;; Add global advice for evil-delete (only runs in evil-tex-bora-mode buffers)
+;; Add global advice for evil-delete (only runs in evil-tex-ts-mode buffers)
 (with-eval-after-load 'evil
-  (advice-add 'evil-delete :around #'evil-tex-bora--delete-advice))
+  (advice-add 'evil-delete :around #'evil-tex-ts--delete-advice))
+
+;; Setup evil-surround integration when it loads (for buffers where evil-tex-ts-mode is already active)
+(with-eval-after-load 'evil-surround
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when evil-tex-ts-mode
+        (evil-tex-ts-set-up-surround)))))
 
 ;;;###autoload
-(defun evil-tex-bora-setup ()
-  "Setup evil-tex-bora for LaTeX buffers."
+(defun evil-tex-ts-setup ()
+  "Setup evil-tex-ts for LaTeX buffers."
   (interactive)
-  (add-hook 'latex-mode-hook #'evil-tex-bora-mode)
-  (add-hook 'LaTeX-mode-hook #'evil-tex-bora-mode))
+  (add-hook 'latex-mode-hook #'evil-tex-ts-mode)
+  (add-hook 'LaTeX-mode-hook #'evil-tex-ts-mode))
 
-(provide 'evil-tex-bora)
-;;; evil-tex-bora.el ends here
+(provide 'evil-tex-ts)
+;;; evil-tex-ts.el ends here

@@ -1,6 +1,6 @@
-# evil-tex-bora: Examples
+# evil-tex-ts: Examples
 
-This file contains usage examples for evil-tex-bora.
+This file contains usage examples for evil-tex-ts.
 
 ## Text Objects
 
@@ -51,14 +51,14 @@ You have 25 other marks available. To change this behavior:
 
 ```elisp
 ;; Disable mt* bindings (preserve original m behavior)
-(setq evil-tex-bora-toggle-override-m nil)
+(setq evil-tex-ts-toggle-override-m nil)
 
 ;; Use ts* instead of mt* (e.g., tse, tsm, tsd, tsc)
-(setq evil-tex-bora-toggle-override-t t)
+(setq evil-tex-ts-toggle-override-t t)
 
 ;; Or use both mt* and ts*
-(setq evil-tex-bora-toggle-override-m t)
-(setq evil-tex-bora-toggle-override-t t)
+(setq evil-tex-ts-toggle-override-m t)
+(setq evil-tex-ts-toggle-override-t t)
 ```
 
 ### Environment asterisk (mte)
@@ -107,10 +107,10 @@ $...$     ->  \[...\]    (inline to display)
 The inline format used when converting from display is configurable:
 ```elisp
 ;; Default: use $...$ (shorter)
-(setq evil-tex-bora-preferred-inline-math 'dollar)
+(setq evil-tex-ts-preferred-inline-math 'dollar)
 
 ;; Alternative: use \(...\) (LaTeX2e style)
-(setq evil-tex-bora-preferred-inline-math 'paren)
+(setq evil-tex-ts-preferred-inline-math 'paren)
 ```
 
 ### Math align (mtM)

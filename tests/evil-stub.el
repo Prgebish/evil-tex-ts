@@ -2,7 +2,7 @@
 ;;
 ;;; Commentary:
 ;;
-;; Minimal stub of Evil functions needed for testing evil-tex-bora
+;; Minimal stub of Evil functions needed for testing evil-tex-ts
 ;; without requiring the full Evil package.
 ;;
 ;;; Code:

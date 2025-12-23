@@ -1,4 +1,4 @@
-# evil-tex-bora: General Plan
+# evil-tex-ts: General Plan
 
 ## Overview
 
@@ -60,7 +60,7 @@ Tree-sitter based LaTeX text objects for Evil mode in Emacs 29+.
 - [x] Create project structure
 - [x] Create general_plan.md
 - [x] Create examples.md
-- [x] Create evil-tex-bora.el skeleton
+- [x] Create evil-tex-ts.el skeleton
 - [x] Create test infrastructure (tests/, Makefile)
 - [x] Create CLAUDE.md
 
@@ -81,7 +81,7 @@ Tree-sitter based LaTeX text objects for Evil mode in Emacs 29+.
 - [x] Prompt keymaps
 
 ### Phase 5: Finalization
-- [x] Minor mode (`evil-tex-bora-mode`)
+- [x] Minor mode (`evil-tex-ts-mode`)
 - [x] Keymaps (text objects + toggle bindings)
 - [x] Tests (113 tests passing)
 

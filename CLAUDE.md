@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository contains **evil-tex-bora** — a tree-sitter-based implementation of LaTeX text objects for Evil mode in Emacs. The `../reference-project/` directory contains the original `evil-tex` package as a reference implementation.
+This repository contains **evil-tex-ts** — a tree-sitter-based implementation of LaTeX text objects for Evil mode in Emacs. The `../reference-project/` directory contains the original `evil-tex` package as a reference implementation.
 
 ## Architecture
 
-### evil-tex-bora (This Project)
+### evil-tex-ts (This Project)
 - **Location**: current directory
 - **Target**: Emacs 29.1+ with built-in tree-sitter
 - **Dependencies**: `evil`, `treesit` (no AUCTeX required)
-- **Main file**: `evil-tex-bora.el` (to be created)
+- **Main file**: `evil-tex-ts.el` (to be created)
 
 Uses tree-sitter AST queries instead of regex for accurate parsing:
 ```elisp
@@ -37,7 +37,7 @@ Uses tree-sitter AST queries instead of regex for accurate parsing:
 ## Evil Text Object Pattern
 
 All text objects follow this pattern:
-1. `evil-tex-bora--bounds-of-X` returns `(outer-beg outer-end inner-beg inner-end)`
+1. `evil-tex-ts--bounds-of-X` returns `(outer-beg outer-end inner-beg inner-end)`
 2. `evil-define-text-object` for outer uses `(nbutlast result 2)`
 3. `evil-define-text-object` for inner uses `(last result 2)`
 
