@@ -350,7 +350,7 @@ When =<new>= or =<type>= opens a keymap (like =e= for environment or =d= for del
 
   /Press/ =dsd=
 
-  /After:/ =x + y|=
+  /After:/ |x + y
 
   Also works with simple delimiters:
 
@@ -358,7 +358,7 @@ When =<new>= or =<type>= opens a keymap (like =e= for environment or =d= for del
 
   /Press/ =dsd=
 
-  /After:/ =a + b|=
+  /After:/ |a + b
 
 
 * Installation
