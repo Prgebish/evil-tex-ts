@@ -1030,16 +1030,30 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
     "paragraph" "subparagraph")
   "List of LaTeX section node types in hierarchical order (highest first).")
 
+(defun evil-tex-ts--find-next-section-start (pos)
+  "Find the start position of the next section after POS.
+Returns the position or nil if no next section found."
+  (save-excursion
+    (goto-char pos)
+    (when (re-search-forward
+           "\\\\\\(?:part\\|chapter\\|section\\|subsection\\|subsubsection\\|paragraph\\|subparagraph\\)\\*?{"
+           nil t)
+      (match-beginning 0))))
+
 (defun evil-tex-ts--bounds-of-section-at-node (section-node)
   "Return bounds for SECTION-NODE.
-Helper function that extracts bounds from a known section node."
+Helper function that extracts bounds from a known section node.
+Section extends until the next section command or end of buffer."
   (let* ((outer-beg (treesit-node-start section-node))
-         (outer-end (treesit-node-end section-node))
+         (tree-sitter-end (treesit-node-end section-node))
          ;; Find the title curly_group to determine inner-beg
          (title-node (treesit-node-child-by-field-name section-node "text"))
          (inner-beg (if title-node
                         (treesit-node-end title-node)
                       outer-beg))
+         ;; Extend outer-end to the next section or end of buffer
+         (next-section-start (evil-tex-ts--find-next-section-start tree-sitter-end))
+         (outer-end (or next-section-start (point-max)))
          (inner-end outer-end))
     ;; Adjust inner-beg to skip newline after title if present
     (when (and evil-tex-ts-select-newlines-with-envs
@@ -1095,7 +1109,7 @@ If not found, searches forward on the same line for the nearest section."
 If COUNT is given, go COUNT sections back."
   (interactive "p")
   (setq count (or count 1))
-  (let ((section-regexp "\\\\\\(part\\|chapter\\|sub\\(?:sub\\)?section\\|\\(?:sub\\)?paragraph\\)\\*?{"))
+  (let ((section-regexp "\\\\\\(part\\|chapter\\|\\(?:sub\\)*section\\|\\(?:sub\\)?paragraph\\)\\*?{"))
     (dotimes (_ count)
       ;; If on a section command, move back first to not find the same one
       (when (looking-at section-regexp)
@@ -1107,7 +1121,7 @@ If COUNT is given, go COUNT sections back."
 If COUNT is given, go COUNT sections forward."
   (interactive "p")
   (setq count (or count 1))
-  (let ((section-regexp "\\\\\\(part\\|chapter\\|sub\\(?:sub\\)?section\\|\\(?:sub\\)?paragraph\\)\\*?{"))
+  (let ((section-regexp "\\\\\\(part\\|chapter\\|\\(?:sub\\)*section\\|\\(?:sub\\)?paragraph\\)\\*?{"))
     (dotimes (_ count)
       ;; If on a section command, skip past it first
       (when (looking-at section-regexp)
@@ -1671,8 +1685,8 @@ For environments (?e): line breaks are added when surrounding partial lines."
         (setq type 'inclusive)))
     ;; Call original surround function
     (funcall orig-fn beg end type char force-new-line)
-    ;; For environments: add line breaks and let Emacs handle indentation
-    (when (and is-env (or env-has-text-before env-has-text-after env-is-linewise))
+    ;; For environments: add line breaks for partial lines and handle indentation
+    (when is-env
       (save-excursion
         (let ((indent (or env-indent ""))
               env-start env-end)
@@ -1700,6 +1714,7 @@ For environments (?e): line breaks are added when surrounding partial lines."
               (when (and indent (> (length indent) 0))
                 (insert indent))))
           ;; Let Emacs handle indentation for the entire environment
+          ;; This applies to ALL environment surrounds (linewise, partial line, or whole line)
           (when (and env-start env-end)
             (indent-region env-start env-end)))))
     ;; For commands, CDLaTeX accents, and super/subscript: normalize AFTER calling orig-fn
@@ -1767,10 +1782,13 @@ Each item is a cons (KEY . VALUE):
    #'evil-tex-ts-get-env-for-surrounding
    #'evil-tex-ts--format-env-cons-for-surrounding))
 
+(defalias 'evil-tex-ts-envs---+prompt #'evil-tex-ts-get-env-for-surrounding
+  "Prompt for environment name.")
+
 (setq evil-tex-ts-env-map
       (let ((keymap (make-sparse-keymap)))
         (evil-tex-ts-bind-to-env-map
-         '(("x" . evil-tex-ts-get-env-for-surrounding)
+         '(("x" . evil-tex-ts-envs---+prompt)
            ("e" . "equation")
            ("E" . "equation*")
            ("f" . "figure")
@@ -2061,41 +2079,6 @@ Returns a cons of (opening . closing) strings for evil-surround."
                        "section")))
     (evil-tex-ts--format-section-for-surround section-type)))
 
-(defun evil-tex-ts--format-env-for-surround (env-name)
-  "Format ENV-NAME for evil-surround.
-Returns a cons of (opening . closing) strings."
-  (cons (format "\\begin{%s}\n" env-name)
-        (format "\n\\end{%s}" env-name)))
-
-(defvar evil-tex-ts-env-name-history nil
-  "History for environment name selection in surround operations.")
-
-(defun evil-tex-ts-surround-env-prompt ()
-  "Prompt user for an environment name to surround with.
-Returns a cons of (opening . closing) strings for evil-surround."
-  (let ((env-name (read-string "Environment: " nil 'evil-tex-ts-env-name-history)))
-    (evil-tex-ts--format-env-for-surround env-name)))
-
-(defun evil-tex-ts--format-command-for-surround (command)
-  "Format COMMAND for evil-surround.
-Returns a cons of (opening . closing) strings."
-  (cons (concat "\\" command "{") "}"))
-
-(defun evil-tex-ts-surround-command-prompt ()
-  "Prompt user for a command name to surround with.
-Returns a cons of (opening . closing) strings for evil-surround."
-  (let ((command (read-string "Command: \\" nil)))
-    (evil-tex-ts--format-command-for-surround command)))
-
-(defvar evil-tex-ts-surround-delimiters
-  `((?m "\\(" . "\\)")
-    (?M "\\[" . "\\]")
-    (?c . ,#'evil-tex-ts-surround-command-prompt)
-    (?e . ,#'evil-tex-ts-surround-env-prompt)
-    (?S . ,#'evil-tex-ts-surround-section-prompt)
-    (?^ "^{" . "}")
-    (?_ "_{" . "}"))
-  "Delimiter pairs for `evil-surround'.")
 
 (defun evil-tex-ts-set-up-surround ()
   "Configure evil-surround for LaTeX editing.
@@ -2109,7 +2092,9 @@ Adds LaTeX-specific surround pairs like environments, commands, and sections."
     (add-to-list 'evil-surround-local-inner-text-object-map-list
                  evil-tex-ts-inner-text-objects-map)
     (add-to-list 'evil-surround-local-outer-text-object-map-list
-                 evil-tex-ts-outer-text-objects-map)))
+                 evil-tex-ts-outer-text-objects-map))
+  ;; Add advice for environment surround to call indent-region
+  (advice-add 'evil-surround-region :around #'evil-tex-ts--surround-region-advice))
 
 (defun evil-tex-ts-set-up-embrace ()
   "Configure evil-embrace not to steal our evil-surround keybinds."

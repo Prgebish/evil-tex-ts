@@ -1,0 +1,463 @@
+#+TITLE:   evil-tex-ts
+#+DATE:    December 2025
+#+STARTUP: inlineimages nofold
+
+*evil-tex-ts* is a modern, tree-sitter based toolkit for LaTeX editing in [[https://github.com/emacs-evil/evil][Evil]] mode. It is a re-imagining of the classic [[https://github.com/iyefrat/evil-tex][evil-tex]] package, utilizing Emacs 29+ built-in tree-sitter capabilities for superior performance and accuracy.
+
+*Why a new package?*
+The original `evil-tex` has not seen updates in years and relies on regular expressions for text object detection. This approach can be brittle, inaccurate in complex cases, and inefficient on large files. *evil-tex-ts* leverages the structural understanding of the `tree-sitter-latex` parser to provide precise text objects, efficient toggles, and robust surround integration.
+
+*Warning: Initial Release*
+This is an early version of the package. While functional, it may contain bugs. Please report issues on GitHub.
+
+* Table of Contents :TOC_3:noexport:
+- [[#showcase][Showcase]]
+  - [[#text-object-examples][Text object examples]]
+  - [[#toggle-examples][Toggle examples]]
+  - [[#surround-examples][Surround examples]]
+- [[#installation][Installation]]
+  - [[#requirements][Requirements]]
+  - [[#setup][Setup]]
+- [[#overview][Overview]]
+  - [[#text-objects][Text Objects]]
+  - [[#toggles][Toggles]]
+  - [[#surround][Surround]]
+  - [[#navigation][Navigation]]
+- [[#configuration][Configuration]]
+  - [[#user-options][User Options]]
+- [[#differences-from-evil-tex][Differences from evil-tex]]
+- [[#acknowledgements][Acknowledgements]]
+- [[#appendix][Appendix]]
+  - [[#keymaps][Keymaps]]
+
+* Showcase
+=|= marks point.
+
+** Text object examples
+- =die= (delete inner environment)
+
+  Before:
+  #+begin_example
+  \begin{equation}
+    x^2 + y^2 = z^2|
+  \end{equation}
+  #+end_example
+
+  Press =die=
+
+  After:
+  #+begin_example
+  \begin{equation}
+  \end{equation}
+  #+end_example
+
+  Point can be anywhere inside the environment:
+
+  Before:
+  #+begin_example
+  \be|gin{equation}
+    x^2 + y^2 = z^2
+  \end{equation}
+  #+end_example
+
+  Press =die=
+
+  After:
+  #+begin_example
+  \begin{equation}
+  \end{equation}
+  #+end_example
+
+- =cic= (change inner command)
+
+  Point can be anywhere inside the command:
+
+  Before: =\textbf{hel|lo}=
+
+  Press =cic=
+
+  After: =\textbf{|}=
+
+     
+  Before: =\tex|tbf{hello}=
+
+  Press =cic=
+
+  After: =\textbf{|}=
+
+   
+  If point is outside a command, seeks the nearest command to the right on the same line:
+
+  Before: =s|ome text \textbf{hello}=
+
+  Press =cic=
+
+  After: =some text \textbf{|}=
+   
+   
+
+- =dam= (delete around math)
+
+  Before: =\(x + y| = z\)=
+
+  Press =dam=
+
+  After: (empty)
+
+  If point is outside math, seeks the nearest math to the right on the same line:
+
+  Before: =some te|xt \(x + y\)=
+
+  Press =dam=
+
+  After: =some text| =
+
+- =viS= (select inner section)
+
+  Select the content of a section until the next section (excluding the =\section{...}= header).
+
+  Before:
+  #+begin_example
+  \section{Introduction}
+  This is the intro.|
+  More text here.
+
+  \section{Methods}
+  #+end_example
+
+  Press =viS=
+
+  After (selected region marked with ##):
+  #+begin_example
+  \section{Introduction}
+  ##This is the intro.
+  ##More text here.
+  ##
+  \section{Methods}
+  #+end_example
+
+  The empty line before =\section{Methods}= is included. Use =vaS= to also include the =\section{...}= header.
+
+** Toggle examples
+All toggle commands use the =mt= prefix by default (mnemonic: "magnificent toggle").
+
+*Note:* The =mt= prefix overrides the =m= (set-marker) command for the =t= character. You have 25 other marks available. To change this behavior, see [[#user-options][User Options]].
+
+- =mte= (toggle environment *)
+
+  Toggle the asterisk on environments. Useful for switching between numbered and unnumbered equations.
+
+  : \begin{equation}|  →  \begin{equation*}
+
+  Works with any environment:
+  : \begin{align}    ↔  \begin{align*}
+  : \begin{figure}   ↔  \begin{figure*}
+  : \begin{table}    ↔  \begin{table*}
+
+- =mtm= (toggle math mode)
+
+  Toggle between inline and display math modes.
+
+  : \(x + y|\)  →  \[x + y\]  →  \(x + y\)
+  : $x + y|$    →  \[x + y\]  →  $x + y$
+
+  The inline math format is controlled by ~evil-tex-ts-preferred-inline-math~: =dollar= (=$...$=, default) or =paren= (=\(...\)=).
+
+- =mtM= (toggle math align)
+
+  Toggle between display math and =align*= environment.
+
+  Before:
+  #+begin_example
+  \[
+    x + y|
+  \]
+  #+end_example
+
+  Press =mtM=
+
+  After:
+  #+begin_example
+  \begin{align*}
+    x + y
+  \end{align*}
+  #+end_example
+
+  Press =mtM= again
+
+  #+begin_example
+  \[
+    x + y
+  \]
+  #+end_example
+
+  Also works starting from inline math (one-way to =align*=):
+
+  Before: =$x + |y$=
+
+  Press =mtM=
+
+  After:
+  #+begin_example
+  \begin{align*}
+    x + y
+  \end{align*}
+  #+end_example
+
+  Then toggles between =align*= and =\[...\]=.
+
+- =mtd= (toggle delimiter sizing)
+
+  Toggle automatic delimiter sizing with =\left=/=\right=.
+
+  : (x + y|)      ↔  \left(x + y\right)
+  : [a, b|]       ↔  \left[a, b\right]
+  : \{1, 2|\}     ↔  \left\{1, 2\right\}
+
+  Also removes =\bigl=/=\bigr= and similar sizing commands (one-way):
+  : \bigl(x + y\bigr)   →  (x + y)
+  : \Bigl[a, b\Bigr]    →  [a, b]
+
+- =mtc= (toggle command *)
+
+  Toggle the asterisk on commands. Useful for switching between numbered and unnumbered sections.
+
+  : \section{Title|}  →  \section*{Title}
+
+  Works with various sectioning commands:
+  : \chapter{Title}      ↔  \chapter*{Title}
+  : \subsection{Title}   ↔  \subsection*{Title}
+  : \paragraph{Title}    ↔  \paragraph*{Title}
+
+- =mtS= (change section type)
+
+  Change the type of the current section. A prompt appears with available section types.
+
+  Before:
+  #+begin_example
+  \section{My Title|}
+  Some content here.
+  #+end_example
+
+  Press =mtS=, select =subsection= from prompt
+
+  After:
+  #+begin_example
+  \subsection{My Title}
+  Some content here.
+  #+end_example
+
+  Available types: =part=, =chapter=, =section=, =subsection=, =subsubsection=, =paragraph=, =subparagraph=
+
+** Surround examples
+- =ysiwe= (surround word with environment)
+
+  Before: |word
+
+  Press =ysiwe=, then type =equation=
+
+  After:
+  #+begin_example
+  \begin{equation}
+    word
+  \end{equation}
+  #+end_example
+
+- =Se= (visual surround with environment)
+
+  Before: =|1 + 2=
+
+  Select the expression with =v$= (or any visual selection), press =S=, then =e= for environment, then =a= for =align= (see [[#keymaps][Environment Keymap]])
+
+  After:
+  #+begin_example
+  \begin{align}
+    1 + 2
+  \end{align}
+  #+end_example
+
+  Content is automatically indented inside the environment.
+
+- =VjSeA= (linewise surround multiple lines with environment)
+
+  Before:
+  #+begin_example
+  |1 + 2
+  3 + 4
+  #+end_example
+
+  =Vj= selects both lines, =S= starts surround, =e= for environment, =A= for =align*=
+
+  After:
+  #+begin_example
+  \begin{align*}
+    1 + 2
+    3 + 4
+  \end{align*}
+  #+end_example
+
+
+* Installation
+** Requirements
+- Emacs 29.1 or later (with tree-sitter support enabled)
+- [[https://github.com/emacs-evil/evil][evil]]
+- [[https://github.com/emacs-evil/evil-surround][evil-surround]] (optional, but highly recommended)
+- A generic `tree-sitter-latex` grammar (usually installed via `M-x treesit-install-language-grammar`)
+
+** Setup
+Since this package is not yet on MELPA, clone the repository and add it to your `load-path`. 
+
+#+BEGIN_SRC emacs-lisp
+(add-to-list 'load-path "/path/to/evil-tex-ts")
+(require 'evil-tex-ts)
+
+;; Hook into LaTeX modes
+(add-hook 'latex-ts-mode-hook #'evil-tex-ts-mode)
+(add-hook 'LaTeX-mode-hook #'evil-tex-ts-mode) ;; If using AUCTeX
+#+END_SRC
+
+* Overview
+** Text Objects
+This package defines precise text objects based on the AST:
+
+| Key | Text Object Target                                | Notes                                           |
+|-----+---------------------------------------------------+-------------------------------------------------|
+| ~c~ | LaTeX commands: ~\foo{...}~                       | Handles optional args `[...]` and nested braces |
+| ~e~ | Environments: ~\begin{...} ... \end{...}~         | Selects proper range including newlines         |
+| ~m~ | Math: ~\(...\)~, ~\[...\]~, ~$...$~, environments | Detects inline vs display math automatically    |
+| ~d~ | Delimiters: `()`, `[]`, `\{\}`, `\left(\right)`   | Handles balanced pairs                          |
+| ~S~ | Sections: ~\section{...}~ to end of section       | Hierarchical selection                          |
+| ~^~ | Superscripts: ~x^2~, ~x^{...}~                    |                                                 |
+| ~_~ | Subscripts: ~x_i~, ~x_{...}~                      |                                                 |
+
+*** Visual reference
+#+begin_example
+   \foobar{barbaz}     \foobar{barbaz}    \foobar     \foobar    \foobar{}     \foobar{}
+   └─────────────┘             └────┘     └─────┘            ┆   └───────┘             ┆
+          ac                     ic         ac      ic (empty)      ac            ic (empty)
+
+  ┌\begin{foobar}     \begin{foobar}
+  │                  ┌
+ae│ baz            ie│ baz
+  │                  └
+  └\end{foobar}       \end{foobar}
+
+  \(foobar\)    \(foobar\)    \[foobar\]    \[foobar\]
+  └────────┘      └────┘      └────────┘      └────┘
+      am            im            am            im
+
+  (foobar)    (foobar)    \left(foobar\right)    \left(foobar\right)  \Bigl(foobar\Bigr)    \Bigl(foobar\Bigr)
+  └──────┘     └────┘     └─────────────────┘          └────┘         └────────────────┘          └────┘
+     ad          id               ad                     id                   ad                    id
+
+   ┌\section{foo}          \section{foo}
+   │                      ┌
+ aS│ baz                iS│ baz
+   │\subsection*{}        │\subsection*{}
+   └ qux                  └ qux
+    \chapter*{bar}         \chapter*{bar}
+
+   a^{foo}    a^{foo}    a^b    a^b    a^\bar    a^\bar
+    └────┘       └─┘      └╵      ╵     └───┘      └──┘
+      a^          i^      a^     i^      a^         i^
+
+   & foobar &    & foobar &    & foobar \\    & foobar \\
+   └───────┘      └──────┘     └───────┘       └──────┘
+       aT            iT            aT             iT
+
+    `foobar'      `foobar'     ``foobar''     ``foobar''
+    └──────┘       └────┘      └────────┘       └────┘
+       aq            iq            aQ             iQ
+#+end_example
+
+** Toggles
+Default prefix is =mt= ("magnificent toggle").
+
+| Key   | Behaviour                                     | Example                                          |
+|-------+-----------------------------------------------+--------------------------------------------------|
+| ~mte~ | Toggle environment asterisk                   | ~\begin{eq}~ ↔ ~\begin{eq*}~                   |
+| ~mtc~ | Toggle command asterisk                       | ~\section~ ↔ ~\section*~                       |
+| ~mtm~ | Toggle math mode (inline ↔ display)         | ~\(...\)~ ↔ ~\[...\]~                          |
+| ~mtM~ | Toggle math align (display ↔ align*)        | ~\[...\]~ ↔ ~\begin{align*}...~                |
+| ~mtd~ | Toggle delimiter sizing                       | ~(x)~ ↔ ~\left(x\right)~                       |
+
+** Surround
+If `evil-surround` is installed, `evil-tex-ts` adds specific surround pairs.
+
+| Key | Surrounds with           | Example Input | Result                       |
+|-----+--------------------------+---------------+------------------------------|
+| ~c~ | Command (prompts)        | ~text~        | ~\cmd{text}~                 |
+| ~e~ | Environment (keymap)     | ~text~        | ~\begin{env} text \end{env}~ |
+| ~m~ | Inline math              | ~text~        | ~\(text\)~ or ~$text$~       |
+| ~M~ | Display math             | ~text~        | ~\[text\]~                   |
+| ~d~ | Delimiter (keymap)       | ~text~        | ~\left(text\right)~          |
+| ~^~ | Superscript              | ~x~           | ~^{x}~                       |
+| ~_~ | Subscript                | ~x~           | ~_{x}~                       |
+| ~;~ | CDLaTeX accents (keymap) | ~x~           | ~\bar{x}~                    |
+
+See [[#keymaps][Keymaps]] for full keymaps.
+
+** Navigation
+- ~evil-tex-ts-go-forward-section~
+- ~evil-tex-ts-go-back-section~
+
+Jump to the next/previous section heading (chapter, section, subsection, etc.).
+
+* Configuration
+** User Options
+Customize these variables via =M-x customize-group RET evil-tex-ts=.
+
+- ~evil-tex-ts-select-newlines-with-envs~ (default: ~t~) \\
+  Include newlines when selecting/deleting environments. Makes =dae= remove the whole block cleanly.
+
+- ~evil-tex-ts-toggle-override-m~ (default: ~t~) \\
+  Bind toggles to =mt=. Set to =nil= to preserve the =m= marker key.
+
+- ~evil-tex-ts-toggle-override-t~ (default: ~nil~) \\
+  Bind toggles to =ts= (vimtex style). Can be used alongside or instead of =mt=.
+
+- ~evil-tex-ts-preferred-inline-math~ (default: ~'dollar~) \\
+  Preferred format for inline math toggles: =dollar= (~$...$~) or =paren= (~\(...\)~).
+
+* Differences from evil-tex
+| Feature            | evil-tex (Original)          | evil-tex-ts (This package)     |
+|--------------------+------------------------------+--------------------------------|
+| *Parsing*          | Regular Expressions          | Tree-sitter (AST)              |
+| *Performance*      | Slower on large files        | Fast & Incremental             |
+| *Accuracy*         | Can be tricked by comments   | Robust structural parsing      |
+| *Dependencies*     | Emacs 25+, AUCTeX            | Emacs 29+, tree-sitter grammar |
+| *Maintainability*  | Harder (complex regex)       | Easier (standard grammar)      |
+
+* Acknowledgements
+- [[https://github.com/iyefrat/evil-tex][evil-tex]] for the original concept and features.
+- [[https://github.com/lervag/vimtex][vimtex]] for inspiration on toggles and text objects.
+- [[https://github.com/hpdeifel/evil-latex-textobjects][evil-latex-textobjects]] for laying the groundwork.
+
+* Appendix
+** Keymaps
+*** Environment Keymap (~e~)
+| Key | Env       | Key | Env         |
+|-----+-----------+-----+-------------|
+| ~x~ | *prompt*  | ~m~ | multline    |
+| ~e~ | equation  | ~c~ | cases       |
+| ~E~ | equation* | ~z~ | tikzpicture |
+| ~a~ | align     | ~f~ | figure      |
+| ~A~ | align*    | ~i~ | itemize     |
+| ~g~ | gather    | ~I~ | enumerate   |
+
+*** Delimiter Keymap (~d~)
+| Key | Simple | Sized (~p~/~s~/~c~) |
+|-----+--------+------------------|
+| ~P~ | ~()~   | ~\left(\right)~  |
+| ~S~ | ~[]~   | ~\left[\right]~  |
+| ~C~ | ~\{\}~ | ~\left\{\right\}~ |
+| ~V~ | ~\vert\vert~ | ~\left\vert\right\vert~ |
+
+*** CDLaTeX Accent Keymap (~;~)
+Context sensitive: uses `\mathbf` in math, `\textbf` in text.
+| Key | Accent | Key | Accent |
+|-----+--------+-----+--------|
+| ~.~ | dot    | ~b~ | bold   |
+| ~^~ | hat    | ~i~ | italic |
+| ~-~ | bar    | ~r~ | roman  |
+| ~v~ | check  | ~e~ | emph   |

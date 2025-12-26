@@ -2282,5 +2282,50 @@ Cursor on subscript should select subscript."
       (should bounds)
       (should (string= (buffer-substring (nth 0 bounds) (nth 1 bounds)) "\\alpha")))))
 
+;;; ==========================================================================
+;;; Environment surround inclusive (non-linewise) selection tests
+;;; ==========================================================================
+
+(ert-deftest test-surround-env-inclusive-whole-line-adds-indentation ()
+  "Test that inclusive env surround on whole line calls indent-region.
+This reproduces the issue where |1 + 2 with Se align produces:
+\\begin{align}
+1 + 2
+\\end{align}
+Instead of:
+\\begin{align}
+  1 + 2
+\\end{align}"
+  (skip-unless evil-tex-ts-loaded)
+  (with-temp-buffer
+    (latex-mode)  ; Enable latex-mode for proper indentation
+    (insert "1 + 2")
+    (treesit-parser-create 'latex)
+    (goto-char 1)
+    (evil-tex-ts-mode 1)
+    (let ((evil-tex-ts-include-newlines-in-envs t))
+      (let* ((beg 1)
+             (end (point-max))  ; End of "1 + 2"
+             (env-pair (evil-tex-ts-get-env-for-surrounding "align")))
+        ;; Simulate visual mode S with inclusive type (not linewise)
+        (evil-tex-ts--surround-region-advice
+         (lambda (b e type char &optional force)
+           (goto-char e)
+           (insert (cdr env-pair))
+           (goto-char b)
+           (insert (car env-pair)))
+         beg end 'inclusive ?e)))  ;; inclusive, NOT line
+    ;; Check that indent-region was called
+    ;; After indent-region, the content should have indentation
+    (let ((result (buffer-string)))
+      (should (string-match-p "\\\\begin{align}" result))
+      (should (string-match-p "\\\\end{align}" result))
+      ;; The content line should start with whitespace (indentation)
+      ;; Content is between \begin{align}\n and \n\end{align}
+      (when (string-match "\\\\begin{align}\n\\(.+\\)\n\\\\end{align}" result)
+        (let ((content-line (match-string 1 result)))
+          ;; Content line should have leading whitespace (indentation)
+          (should (string-match-p "^[ \t]" content-line)))))))
+
 (provide 'test-evil-tex-ts)
 ;;; test-evil-tex-ts.el ends here
