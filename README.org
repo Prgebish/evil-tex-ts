@@ -402,7 +402,7 @@ Since this package is not yet on MELPA, clone the repository and add it to your 
   (setq evil-tex-ts-preferred-inline-math 'dollar))
 #+END_SRC
 
-*Important:* The variable ~evil-tex-ts-preferred-inline-math~ controls which format is used when toggling math modes (=mtm=) and surrounding with inline math (=m=). Set it to ='dollar= for =$...$= or ='paren= for =\(...\)=.
+*Important:* The variable ~evil-tex-ts-preferred-inline-math~ controls which format is used when toggling math modes (=mtm=) and surrounding with inline math (=m=). Default value is ='dollar= (=$...$=). Set to ='paren= for =\(...\)=.
 
 * Overview
 ** Text Objects
