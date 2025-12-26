@@ -410,10 +410,10 @@ This package defines precise text objects based on the AST:
 
 | Key | Text Object Target                                | Notes                                           |
 |-----+---------------------------------------------------+-------------------------------------------------|
-| ~c~ | LaTeX commands: ~\foo{...}~                       | Handles optional args `[...]` and nested braces |
+| ~c~ | LaTeX commands: ~\foo{...}~                       | Handles optional args ~[...]~ and nested braces |
 | ~e~ | Environments: ~\begin{...} ... \end{...}~         | Selects proper range including newlines         |
 | ~m~ | Math: ~\(...\)~, ~\[...\]~, ~$...$~, environments | Detects inline vs display math automatically    |
-| ~d~ | Delimiters: `()`, `[]`, `\{\}`, `\left(\right)`   | Handles balanced pairs                          |
+| ~d~ | Delimiters: ~()~, ~[]~, ~\{\}~, ~\left(\right)~   | Handles balanced pairs                          |
 | ~S~ | Sections: ~\section{...}~ to end of section       | Hierarchical selection                          |
 | ~^~ | Superscripts: ~x^2~, ~x^{...}~                    |                                                 |
 | ~_~ | Subscripts: ~x_i~, ~x_{...}~                      |                                                 |
