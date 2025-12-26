@@ -105,14 +105,12 @@ ae│ baz            ie│ baz
 
   After: =\textbf{|}=
 
-     
   Before: =\tex|tbf{hello}=
 
   Press =cic=
 
   After: =\textbf{|}=
 
-   
   If point is outside a command, seeks the nearest command to the right on the same line:
 
   Before: =s|ome text \textbf{hello}=
@@ -120,8 +118,6 @@ ae│ baz            ie│ baz
   Press =cic=
 
   After: =some text \textbf{|}=
-   
-   
 
 - =dam= (delete around math)
 
