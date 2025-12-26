@@ -1520,13 +1520,14 @@ Return KEYMAP."
   "Prompt the user to press a key from KEYMAP.
 Return the result of the called function, or error if key not found."
   (let (key map-result)
-    (when (require 'which-key nil t)
+    (when (and (require 'which-key nil t)
+               (fboundp 'which-key--show-keymap))
       (run-with-idle-timer
        which-key-idle-delay nil
        (lambda () (unless key
                     (which-key--show-keymap nil keymap nil nil t)))))
     (setq key (string (read-char)))
-    (when (functionp #'which-key--hide-popup)
+    (when (fboundp 'which-key--hide-popup)
       (which-key--hide-popup))
     (setq map-result (lookup-key keymap key))
     (cond
