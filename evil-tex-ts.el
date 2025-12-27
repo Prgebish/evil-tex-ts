@@ -893,65 +893,75 @@ Finds closest enclosing (), [], or \\{\\}."
 
 (defun evil-tex-ts--find-delimiter-pair (left right)
   "Find matching delimiter pair LEFT and RIGHT around point.
-Returns (outer-beg outer-end inner-beg inner-end) or nil."
+Returns (outer-beg outer-end inner-beg inner-end) or nil.
+Properly handles nested delimiters."
   (let ((orig-point (point))
         left-pos right-pos)
     (save-excursion
       ;; Search backward for left delimiter (include current position)
-      (when (evil-tex-ts--search-backward-delimiter left)
+      (when (evil-tex-ts--search-backward-delimiter left right)
         (setq left-pos (point))
-        ;; Search forward for matching right delimiter
-        (goto-char orig-point)
-        (when (evil-tex-ts--search-forward-delimiter right)
+        ;; Search forward for matching right delimiter from left-pos
+        (goto-char (+ left-pos (length left)))
+        (when (evil-tex-ts--search-forward-delimiter left right)
           (setq right-pos (point))
           ;; Verify this is a valid pair (left at or before point, right after point)
           (when (and left-pos right-pos
                      (<= left-pos orig-point)
-                     (> right-pos orig-point))
+                     (>= right-pos orig-point))
             (list left-pos right-pos
                   (+ left-pos (length left))
                   (- right-pos (length right)))))))))
 
-(defun evil-tex-ts--search-backward-delimiter (delim)
-  "Search backward for DELIM, handling nesting.
+(defun evil-tex-ts--search-backward-delimiter (left right)
+  "Search backward for LEFT delimiter, accounting for nesting with RIGHT.
 Returns position if found, nil otherwise.
 Skips delimiters that are part of \\( \\) \\[ \\] sequences.
 Also checks if delimiter is at current position."
   (let ((depth 1)
-        (regexp (regexp-quote delim))
-        (delim-len (length delim)))
-    ;; First check if delimiter is at current position
-    (when (and (>= (point-max) (+ (point) delim-len))
-               (string= (buffer-substring-no-properties (point) (+ (point) delim-len)) delim)
-               (not (and (= delim-len 1)
-                         (member delim '("(" ")" "[" "]"))
-                         (eq (char-before) ?\\))))
+        (combined-regexp (concat "\\(?:" (regexp-quote left) "\\|" (regexp-quote right) "\\)"))
+        (left-len (length left)))
+    ;; First check if left delimiter is at current position
+    (when (and (>= (point-max) (+ (point) left-len))
+               (string= (buffer-substring-no-properties (point) (+ (point) left-len)) left)
+               (not (evil-tex-ts--escaped-delimiter-p left)))
       (setq depth 0))
-    ;; Then search backward
+    ;; Then search backward, tracking nesting
     (while (and (> depth 0)
-                (re-search-backward regexp nil t))
-      ;; Skip if this is part of \( \) \[ \]
-      (unless (and (= delim-len 1)
-                   (member delim '("(" ")" "[" "]"))
-                   (eq (char-before) ?\\))
-        (setq depth (1- depth))))
+                (re-search-backward combined-regexp nil t))
+      (let ((matched (match-string 0)))
+        (unless (evil-tex-ts--escaped-delimiter-p matched)
+          (cond
+           ((string= matched right) (setq depth (1+ depth)))
+           ((string= matched left) (setq depth (1- depth)))))))
     (when (= depth 0)
       (point))))
 
-(defun evil-tex-ts--search-forward-delimiter (delim)
-  "Search forward for DELIM.
-Returns position after delim if found, nil otherwise.
+(defun evil-tex-ts--search-forward-delimiter (left right)
+  "Search forward for matching RIGHT delimiter, accounting for nesting with LEFT.
+Returns position after right delimiter if found, nil otherwise.
 Skips delimiters that are part of \\( \\) \\[ \\] sequences."
-  (let ((regexp (regexp-quote delim))
+  (let ((depth 1)
+        (combined-regexp (concat "\\(?:" (regexp-quote left) "\\|" (regexp-quote right) "\\)"))
         (found nil))
     (while (and (not found)
-                (re-search-forward regexp nil t))
-      ;; Skip if this is part of \( \) \[ \]
-      (unless (and (= (length delim) 1)
-                   (member delim '("(" ")" "[" "]"))
-                   (eq (char-before (match-beginning 0)) ?\\))
-        (setq found (point))))
+                (> depth 0)
+                (re-search-forward combined-regexp nil t))
+      (let ((matched (match-string 0)))
+        (unless (evil-tex-ts--escaped-delimiter-p matched)
+          (cond
+           ((string= matched left) (setq depth (1+ depth)))
+           ((string= matched right)
+            (setq depth (1- depth))
+            (when (= depth 0)
+              (setq found (point))))))))
     found))
+
+(defun evil-tex-ts--escaped-delimiter-p (delim)
+  "Return non-nil if DELIM at current match is escaped (part of \\( \\) \\[ \\])."
+  (and (= (length delim) 1)
+       (member delim '("(" ")" "[" "]"))
+       (eq (char-before (match-beginning 0)) ?\\)))
 
 ;;; Superscript/Subscript text objects
 
