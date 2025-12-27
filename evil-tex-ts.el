@@ -428,7 +428,8 @@ For example, \\sqrt[n]{x} is parsed as separate nodes:
 - text inside [...]: n
 - curly_group: {x}
 
-We detect this and extend the command bounds to include trailing [...] and {...}."
+We detect this and extend the command bounds to include
+trailing [...] and {...}."
   (when-let* ((node (evil-tex-ts--get-node-at-point))
               (cmd-node (evil-tex-ts--find-parent-by-type
                          node evil-tex-ts--command-types)))
@@ -471,8 +472,7 @@ Returns (new-outer-end curly-nodes) if found, nil otherwise.
 CURLY-NODES is a list of curly_group nodes for inner selection."
   (save-excursion
     (goto-char (treesit-node-end cmd-node))
-    (let ((continue t)
-          (new-end (treesit-node-end cmd-node))
+    (let ((new-end (treesit-node-end cmd-node))
           (curly-nodes nil))
       ;; Skip whitespace and look for [ or {
       (skip-chars-forward " \t\n")
@@ -623,7 +623,7 @@ Returns (outer-beg outer-end inner-beg inner-end) or nil."
 Looks backward from CURLY-NODE for a command pattern like \\cmd or \\cmd[...].
 Returns (outer-beg outer-end inner-beg inner-end) or nil."
   (let ((curly-start (treesit-node-start curly-node))
-        (curly-end (treesit-node-end curly-node))
+        (_curly-end (treesit-node-end curly-node))
         (pt (point)))
     (save-excursion
       (goto-char curly-start)
@@ -1161,7 +1161,7 @@ Prompts for a new section type (e.g., section -> subsection)."
 ;; environments) need explicit linewise ranges to match Vim/Evil behavior.
 
 ;; Environment text objects (ie/ae)
-(evil-define-text-object evil-tex-ts-inner-environment (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-environment (count &optional _beg _end _type)
   "Select inner LaTeX environment."
   :extend-selection nil
   (when-let ((bounds (evil-tex-ts--bounds-of-environment)))
@@ -1172,7 +1172,7 @@ Prompts for a new section type (e.g., section -> subsection)."
           (list (nth 2 bounds) (nth 3 bounds)))
       (list (nth 2 bounds) (nth 3 bounds)))))
 
-(evil-define-text-object evil-tex-ts-outer-environment (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-environment (count &optional _beg _end _type)
   "Select outer LaTeX environment."
   :extend-selection nil
   (when-let ((bounds (evil-tex-ts--bounds-of-environment)))
@@ -1191,46 +1191,46 @@ Prompts for a new section type (e.g., section -> subsection)."
         (list outer-beg outer-end)))))
 
 ;; Command text objects (ic/ac)
-(evil-define-text-object evil-tex-ts-inner-command (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-command (count &optional _beg _end _type)
   "Select inner LaTeX command."
   :extend-selection nil
   (when-let ((bounds (evil-tex-ts--bounds-of-command)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-ts-outer-command (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-command (count &optional _beg _end _type)
   "Select outer LaTeX command."
   :extend-selection nil
   (when-let ((bounds (evil-tex-ts--bounds-of-command)))
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Math text objects (im/am)
-(evil-define-text-object evil-tex-ts-inner-math (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-math (count &optional _beg _end _type)
   "Select inner math environment."
   :extend-selection nil
   (when-let ((bounds (evil-tex-ts--bounds-of-math)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-ts-outer-math (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-math (count &optional _beg _end _type)
   "Select outer math environment."
   :extend-selection nil
   (when-let ((bounds (evil-tex-ts--bounds-of-math)))
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Delimiter text objects (id/ad)
-(evil-define-text-object evil-tex-ts-inner-delimiter (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-delimiter (count &optional _beg _end _type)
   "Select inner delimiter."
   :extend-selection nil
   (when-let ((bounds (evil-tex-ts--bounds-of-delimiter)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-ts-outer-delimiter (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-delimiter (count &optional _beg _end _type)
   "Select outer delimiter."
   :extend-selection nil
   (when-let ((bounds (evil-tex-ts--bounds-of-delimiter)))
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Superscript text objects (i^/a^)
-(evil-define-text-object evil-tex-ts-inner-superscript (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-superscript (count &optional _beg _end _type)
   "Select inner superscript.
 For ^{foo}: selects foo
 For ^b: selects b
@@ -1239,7 +1239,7 @@ For ^\\bar: selects \\bar"
   (when-let ((bounds (evil-tex-ts--bounds-of-superscript)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-ts-outer-superscript (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-superscript (count &optional _beg _end _type)
   "Select outer superscript.
 For ^{foo}: selects ^{foo}
 For ^b: selects ^b
@@ -1249,7 +1249,7 @@ For ^\\bar: selects ^\\bar"
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Subscript text objects (i_/a_)
-(evil-define-text-object evil-tex-ts-inner-subscript (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-subscript (count &optional _beg _end _type)
   "Select inner subscript.
 For _{foo}: selects foo
 For _b: selects b
@@ -1258,7 +1258,7 @@ For _\\bar: selects \\bar"
   (when-let ((bounds (evil-tex-ts--bounds-of-subscript)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-ts-outer-subscript (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-subscript (count &optional _beg _end _type)
   "Select outer subscript.
 For _{foo}: selects _{foo}
 For _b: selects _b
@@ -1268,14 +1268,14 @@ For _\\bar: selects _\\bar"
     (list (nth 0 bounds) (nth 1 bounds))))
 
 ;; Section text objects (iS/aS)
-(evil-define-text-object evil-tex-ts-inner-section (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-inner-section (count &optional _beg _end _type)
   "Select inner LaTeX section.
 Selects content after the section title to the end of the section."
   :extend-selection nil
   (when-let ((bounds (evil-tex-ts--bounds-of-section)))
     (list (nth 2 bounds) (nth 3 bounds))))
 
-(evil-define-text-object evil-tex-ts-outer-section (count &optional beg end type)
+(evil-define-text-object evil-tex-ts-outer-section (count &optional _beg _end _type)
   "Select outer LaTeX section.
 Selects from \\section{...} to the end of the section."
   :extend-selection nil
@@ -1490,7 +1490,8 @@ Also works with inline math ($...$) converting to align*."
                                                        single-strings-fn &optional cons-fn)
   "Populate KEYMAP with keys and callbacks from GENERATOR-ALIST.
 
-Each item in GENERATOR-ALIST is a cons (KEY . VALUE).  KEY is a string, VALUE can be:
+Each item in GENERATOR-ALIST is a cons (KEY . VALUE).
+KEY is a string, VALUE can be:
 - A string: call SINGLE-STRINGS-FN with it
 - A cons of strings: call CONS-FN with it (or just return it if CONS-FN is nil)
 - A function: bind directly
@@ -1574,7 +1575,8 @@ For example, \\alpha is empty, \\frac{a}{b} is not.")
     (cons (concat "\\" command "{") "}")))
 
 (defun evil-tex-ts--surround-inline-math ()
-  "Return surround pair for inline math based on `evil-tex-ts-preferred-inline-math'."
+  "Return surround pair for inline math.
+Uses `evil-tex-ts-preferred-inline-math' to determine format."
   (if (eq evil-tex-ts-preferred-inline-math 'dollar)
       '("$" . "$")
     '("\\(" . "\\)")))
@@ -1615,21 +1617,25 @@ Returns (NEW-END INDENT-STRING HAD-TRAILING-NEWLINE)."
             (setq end (- end (1- match-len)))))
         (list end indent-string had-trailing-newline)))))
 
+;; Forward declaration for byte-compiler (defined by define-minor-mode below)
+(defvar evil-tex-ts-mode)
+
 (defun evil-tex-ts--surround-region-advice (orig-fn beg end type char &optional force-new-line)
-  "Advice for `evil-surround-region' to normalize regions for inline math, commands, and accents.
-Normalizes the region (trims and collapses newlines) when surrounding with inline math,
-commands, CDLaTeX accents, superscript, or subscript. For linewise selections, changes
-type to `inclusive' to prevent evil-surround from adding extra newlines.
+  "Advice for `evil-surround-region' to normalize regions.
+Normalizes the region (trims and collapses newlines) when surrounding
+with inline math, commands, CDLaTeX accents, superscript, or subscript.
+For linewise selections, changes type to `inclusive' to prevent
+evil-surround from adding extra newlines.
 
 For inline math (?m): normalization happens BEFORE surrounding.
-For commands (?c): normalization happens AFTER surrounding (after prompt).
-For CDLaTeX accents (?\\;): normalization happens AFTER surrounding (after prompt).
-For superscript (?^) and subscript (?_): normalization happens AFTER surrounding.
-For environments (?e): line breaks are added when surrounding partial lines."
+For commands (?c): normalization happens AFTER surrounding.
+For CDLaTeX accents (?\\;): normalization happens AFTER surrounding.
+For superscript (?^) and subscript (?_): normalization AFTER surrounding.
+For environments (?e): line breaks added when surrounding partial lines."
   (let (indent-string had-trailing-newline content-length original-col original-line
         is-inline-math is-command is-env is-cdlatex-accent is-super-or-subscript
         ;; For environment: remember if there's text before/after on the same line
-        env-has-text-before env-has-text-after env-indent env-is-linewise)
+        env-has-text-before env-has-text-after env-indent)
     (setq is-inline-math (and evil-tex-ts-mode (eq char ?m)))
     (setq is-command (and evil-tex-ts-mode (eq char ?c)))
     (setq is-env (and evil-tex-ts-mode (eq char ?e)))
@@ -1655,7 +1661,6 @@ For environments (?e): line breaks are added when surrounding partial lines."
               (setq env-has-text-after (string-match-p "[^ \t]" text-after)))))))
     ;; For environment linewise selection: handle trailing newline and indentation
     (when (and is-env (eq type 'line))
-      (setq env-is-linewise t)
       ;; Linewise selection includes trailing newline as line marker.
       ;; Remove only ONE trailing newline (the linewise marker), preserving
       ;; any blank lines that user intentionally selected.
@@ -1880,7 +1885,7 @@ Uses tree-sitter to check for math context."
   "Keymap for surrounding with cdlatex-style accents.")
 
 (defun evil-tex-ts-bind-to-cdlatex-accents-map (key-generator-alist &optional keymap)
-  "Bind accent macros from KEY-GENERATOR-ALIST to `evil-tex-ts-cdlatex-accents-map'."
+  "Bind accent macros from KEY-GENERATOR-ALIST to accents keymap."
   (evil-tex-ts--populate-surround-keymap
    (or keymap evil-tex-ts-cdlatex-accents-map)
    key-generator-alist
@@ -1961,7 +1966,7 @@ Uses tree-sitter to check for math context."
   (evil-tex-ts--read-with-keymap evil-tex-ts-env-map))
 
 (defun evil-tex-ts-surround-cdlatex-accents-prompt ()
-  "Prompt user for an accent to surround with using `evil-tex-ts-cdlatex-accents-map'."
+  "Prompt user for an accent to surround with from accents keymap."
   (evil-tex-ts--read-with-keymap evil-tex-ts-cdlatex-accents-map))
 
 (defun evil-tex-ts-surround-delim-prompt ()
@@ -2009,30 +2014,6 @@ Each element is (CHAR LEFT-DELIM . RIGHT-DELIM) or (CHAR . FUNCTION).
 
 (defvar evil-tex-ts-outer-text-objects-map (make-sparse-keymap)
   "Outer text object keymap for `evil-tex-ts'.")
-
-;; Setup functions
-
-(defun evil-tex-ts-set-up-surround ()
-  "Configure evil-surround for LaTeX editing.
-Things like 'csm' (change surrounding math) will work after this."
-  (setq-local evil-surround-pairs-alist
-              (append evil-tex-ts-surround-delimiters evil-surround-pairs-alist))
-  ;; Use local text object maps if evil-surround supports it
-  (when (and (boundp 'evil-surround-local-inner-text-object-map-list)
-             (boundp 'evil-surround-local-outer-text-object-map-list))
-    (add-to-list 'evil-surround-local-inner-text-object-map-list
-                 evil-tex-ts-inner-text-objects-map)
-    (add-to-list 'evil-surround-local-outer-text-object-map-list
-                 evil-tex-ts-outer-text-objects-map))
-  ;; Add advice for normalizing inline math regions
-  (advice-add 'evil-surround-region :around #'evil-tex-ts--surround-region-advice))
-
-(defun evil-tex-ts-set-up-embrace ()
-  "Configure evil-embrace not to steal our evil-surround keybinds."
-  (setq-local evil-embrace-evil-surround-keys
-              (append
-               (mapcar #'car evil-tex-ts-surround-delimiters)
-               evil-embrace-evil-surround-keys)))
 
 ;; Populate text object keymaps
 (with-eval-after-load 'evil
