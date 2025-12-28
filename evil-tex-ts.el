@@ -2194,9 +2194,12 @@ Binds [[ and ]] for section navigation in normal and visual states."
   :lighter " ETB"
   :keymap evil-tex-ts-mode-map
   (if evil-tex-ts-mode
-      (progn
-        (unless (evil-tex-ts--ensure-parser)
-          (user-error "Tree-sitter LaTeX parser not available"))
+      (if (not (evil-tex-ts--ensure-parser))
+          ;; Parser not available - gracefully disable mode without breaking hooks
+          (progn
+            (setq evil-tex-ts-mode nil)
+            (message "evil-tex-ts-mode: Tree-sitter LaTeX parser not available, mode disabled"))
+        ;; Parser available - normal activation
         ;; Ensure treesit parser is created for this buffer
         (treesit-parser-create 'latex)
         ;; Add hook for cursor positioning after linewise delete
