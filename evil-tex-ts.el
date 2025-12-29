@@ -231,7 +231,7 @@ When `evil-tex-ts-select-newlines-with-envs' is non-nil:
           ;; so the remaining indentation stays correct after deletion.
           (save-excursion
             (goto-char end-command-pos)
-            (goto-char (line-beginning-position))
+            (beginning-of-line)
             (move-to-column start-col)
             (setq inner-end (point))))))
     (list outer-beg outer-end inner-beg inner-end)))
@@ -1781,7 +1781,50 @@ For environments (?e): line breaks added when surrounding partial lines."
 
 ;; Environment keymap for surround
 
-(defvar evil-tex-ts-env-map (make-sparse-keymap)
+(defalias 'evil-tex-ts-envs---+prompt #'evil-tex-ts-get-env-for-surrounding
+  "Prompt for environment name.")
+
+(defvar evil-tex-ts-env-map
+  (let ((keymap (make-sparse-keymap)))
+    (evil-tex-ts--populate-surround-keymap
+     keymap
+     '(("x" . evil-tex-ts-envs---+prompt)
+       ("e" . "equation")
+       ("E" . "equation*")
+       ("f" . "figure")
+       ("i" . "itemize")
+       ("I" . "enumerate")
+       ("b" . "frame")
+       ("a" . "align")
+       ("A" . "align*")
+       ("y" . "array")
+       ("n" . "alignat")
+       ("N" . "alignat*")
+       ("r" . "eqnarray")
+       ("l" . "flalign")
+       ("L" . "flalign*")
+       ("g" . "gather")
+       ("G" . "gather*")
+       ("m" . "multline")
+       ("M" . "multline*")
+       ("c" . "cases")
+       ("z" . "tikzpicture")
+       ;; prefix t - theorems
+       ("ta" . "axiom")
+       ("tc" . "corollary")
+       ("tC" . "claim")
+       ("td" . "definition")
+       ("te" . "examples")
+       ("ts" . "exercise")
+       ("tl" . "lemma")
+       ("tp" . "proof")
+       ("tq" . "question")
+       ("tr" . "remark")
+       ("tt" . "theorem"))
+     "evil-tex-ts-envs---"
+     #'evil-tex-ts-get-env-for-surrounding
+     #'evil-tex-ts--format-env-cons-for-surrounding)
+    keymap)
   "Keymap for surrounding with environments.")
 
 (defun evil-tex-ts-bind-to-env-map (key-generator-alist &optional keymap)
@@ -1797,48 +1840,6 @@ Each item is a cons (KEY . VALUE):
    "evil-tex-ts-envs---"
    #'evil-tex-ts-get-env-for-surrounding
    #'evil-tex-ts--format-env-cons-for-surrounding))
-
-(defalias 'evil-tex-ts-envs---+prompt #'evil-tex-ts-get-env-for-surrounding
-  "Prompt for environment name.")
-
-(setq evil-tex-ts-env-map
-      (let ((keymap (make-sparse-keymap)))
-        (evil-tex-ts-bind-to-env-map
-         '(("x" . evil-tex-ts-envs---+prompt)
-           ("e" . "equation")
-           ("E" . "equation*")
-           ("f" . "figure")
-           ("i" . "itemize")
-           ("I" . "enumerate")
-           ("b" . "frame")
-           ("a" . "align")
-           ("A" . "align*")
-           ("y" . "array")
-           ("n" . "alignat")
-           ("N" . "alignat*")
-           ("r" . "eqnarray")
-           ("l" . "flalign")
-           ("L" . "flalign*")
-           ("g" . "gather")
-           ("G" . "gather*")
-           ("m" . "multline")
-           ("M" . "multline*")
-           ("c" . "cases")
-           ("z" . "tikzpicture")
-           ;; prefix t - theorems
-           ("ta" . "axiom")
-           ("tc" . "corollary")
-           ("tC" . "claim")
-           ("td" . "definition")
-           ("te" . "examples")
-           ("ts" . "exercise")
-           ("tl" . "lemma")
-           ("tp" . "proof")
-           ("tq" . "question")
-           ("tr" . "remark")
-           ("tt" . "theorem"))
-         keymap)
-        keymap))
 
 ;; CDLaTeX accents keymap for surround
 
@@ -1891,7 +1892,43 @@ Uses tree-sitter to check for math context."
       '("\\mathsf{" . "}")
     '("\\textsf{" . "}")))
 
-(defvar evil-tex-ts-cdlatex-accents-map (make-sparse-keymap)
+(defvar evil-tex-ts-cdlatex-accents-map
+  (let ((keymap (make-sparse-keymap)))
+    (evil-tex-ts--populate-surround-keymap
+     keymap
+     '(("." . "dot")
+       (":" . "ddot")
+       ("~" . "tilde")
+       ("N" . "widetilde")
+       ("^" . "hat")
+       ("H" . "widehat")
+       ("-" . "bar")
+       ("T" . "overline")
+       ("_" . "underline")
+       ("{" . "overbrace")
+       ("}" . "underbrace")
+       (">" . "vec")
+       ("/" . "grave")
+       ("\"" . "acute")
+       ("v" . "check")
+       ("u" . "breve")
+       ("m" . "mbox")
+       ("c" . "mathcal")
+       ("q" . "sqrt")
+       ("r" . evil-tex-ts-cdlatex-accents---rm)
+       ("i" . evil-tex-ts-cdlatex-accents---it)
+       ("l" . "textsl")
+       ("b" . evil-tex-ts-cdlatex-accents---bf)
+       ("e" . evil-tex-ts-cdlatex-accents---emph)
+       ("y" . evil-tex-ts-cdlatex-accents---tt)
+       ("f" . evil-tex-ts-cdlatex-accents---sf)
+       ("0" . ("{\\textstyle " . "}"))
+       ("1" . ("{\\displaystyle " . "}"))
+       ("2" . ("{\\scriptstyle " . "}"))
+       ("3" . ("{\\scriptscriptstyle " . "}")))
+     "evil-tex-ts-cdlatex-accents---"
+     #'evil-tex-ts--format-accent-for-surrounding)
+    keymap)
   "Keymap for surrounding with cdlatex-style accents.")
 
 (defun evil-tex-ts-bind-to-cdlatex-accents-map (key-generator-alist &optional keymap)
@@ -1902,45 +1939,27 @@ Uses tree-sitter to check for math context."
    "evil-tex-ts-cdlatex-accents---"
    #'evil-tex-ts--format-accent-for-surrounding))
 
-(setq evil-tex-ts-cdlatex-accents-map
-      (let ((keymap (make-sparse-keymap)))
-        (evil-tex-ts-bind-to-cdlatex-accents-map
-         '(("." . "dot")
-           (":" . "ddot")
-           ("~" . "tilde")
-           ("N" . "widetilde")
-           ("^" . "hat")
-           ("H" . "widehat")
-           ("-" . "bar")
-           ("T" . "overline")
-           ("_" . "underline")
-           ("{" . "overbrace")
-           ("}" . "underbrace")
-           (">" . "vec")
-           ("/" . "grave")
-           ("\"" . "acute")
-           ("v" . "check")
-           ("u" . "breve")
-           ("m" . "mbox")
-           ("c" . "mathcal")
-           ("q" . "sqrt")
-           ("r" . evil-tex-ts-cdlatex-accents---rm)
-           ("i" . evil-tex-ts-cdlatex-accents---it)
-           ("l" . "textsl")
-           ("b" . evil-tex-ts-cdlatex-accents---bf)
-           ("e" . evil-tex-ts-cdlatex-accents---emph)
-           ("y" . evil-tex-ts-cdlatex-accents---tt)
-           ("f" . evil-tex-ts-cdlatex-accents---sf)
-           ("0" . ("{\\textstyle " . "}"))
-           ("1" . ("{\\displaystyle " . "}"))
-           ("2" . ("{\\scriptstyle " . "}"))
-           ("3" . ("{\\scriptscriptstyle " . "}")))
-         keymap)
-        keymap))
-
 ;; Delimiter keymap for surround
 
-(defvar evil-tex-ts-delim-map (make-sparse-keymap)
+(defvar evil-tex-ts-delim-map
+  (let ((keymap (make-sparse-keymap)))
+    (evil-tex-ts--populate-surround-keymap
+     keymap
+     '(("P" "(" . ")")
+       ("p" "\\left(" . "\\right)")
+       ("S" "[" . "]")
+       ("s" "\\left[" . "\\right]")
+       ("C" "\\{" . "\\}")
+       ("c" "\\left\\{" . "\\right\\}")
+       ("R" "\\langle " . "\\rangle")
+       ("r" "\\left\\langle " . "\\right\\rangle")
+       ("v" "\\left\\lvert" . "\\right\\rvert")
+       ("V" "\\lvert" . "\\rvert")
+       ("n" "\\left\\lVert" . "\\right\\rVert")
+       ("N" "\\lVert" . "\\rVert"))
+     "evil-tex-ts-delims---"
+     #'identity)
+    keymap)
   "Keymap for surrounding with delimiters.")
 
 (defun evil-tex-ts-bind-to-delim-map (key-generator-alist &optional keymap)
@@ -1950,24 +1969,6 @@ Uses tree-sitter to check for math context."
    key-generator-alist
    "evil-tex-ts-delims---"
    #'identity))
-
-(setq evil-tex-ts-delim-map
-      (let ((keymap (make-sparse-keymap)))
-        (evil-tex-ts-bind-to-delim-map
-         '(("P" "(" . ")")
-           ("p" "\\left(" . "\\right)")
-           ("S" "[" . "]")
-           ("s" "\\left[" . "\\right]")
-           ("C" "\\{" . "\\}")
-           ("c" "\\left\\{" . "\\right\\}")
-           ("R" "\\langle " . "\\rangle")
-           ("r" "\\left\\langle " . "\\right\\rangle")
-           ("v" "\\left\\lvert" . "\\right\\rvert")
-           ("V" "\\lvert" . "\\rvert")
-           ("n" "\\left\\lVert" . "\\right\\rVert")
-           ("N" "\\lVert" . "\\rVert"))
-         keymap)
-        keymap))
 
 ;; Prompt functions for surround
 
@@ -2019,36 +2020,29 @@ Each element is (CHAR LEFT-DELIM . RIGHT-DELIM) or (CHAR . FUNCTION).
 
 ;; Text object keymaps for surround
 
-(defvar evil-tex-ts-inner-text-objects-map (make-sparse-keymap)
+(defvar evil-tex-ts-inner-text-objects-map
+  (let ((keymap (make-sparse-keymap)))
+    (define-key keymap "e" #'evil-tex-ts-inner-environment)
+    (define-key keymap "c" #'evil-tex-ts-inner-command)
+    (define-key keymap "m" #'evil-tex-ts-inner-math)
+    (define-key keymap "d" #'evil-tex-ts-inner-delimiter)
+    (define-key keymap "^" #'evil-tex-ts-inner-superscript)
+    (define-key keymap "_" #'evil-tex-ts-inner-subscript)
+    (define-key keymap "S" #'evil-tex-ts-inner-section)
+    keymap)
   "Inner text object keymap for `evil-tex-ts'.")
 
-(defvar evil-tex-ts-outer-text-objects-map (make-sparse-keymap)
+(defvar evil-tex-ts-outer-text-objects-map
+  (let ((keymap (make-sparse-keymap)))
+    (define-key keymap "e" #'evil-tex-ts-outer-environment)
+    (define-key keymap "c" #'evil-tex-ts-outer-command)
+    (define-key keymap "m" #'evil-tex-ts-outer-math)
+    (define-key keymap "d" #'evil-tex-ts-outer-delimiter)
+    (define-key keymap "^" #'evil-tex-ts-outer-superscript)
+    (define-key keymap "_" #'evil-tex-ts-outer-subscript)
+    (define-key keymap "S" #'evil-tex-ts-outer-section)
+    keymap)
   "Outer text object keymap for `evil-tex-ts'.")
-
-;; Populate text object keymaps
-(with-eval-after-load 'evil
-  ;; Inner text objects
-  (define-key evil-tex-ts-inner-text-objects-map "e" #'evil-tex-ts-inner-environment)
-  (define-key evil-tex-ts-inner-text-objects-map "c" #'evil-tex-ts-inner-command)
-  (define-key evil-tex-ts-inner-text-objects-map "m" #'evil-tex-ts-inner-math)
-  (define-key evil-tex-ts-inner-text-objects-map "d" #'evil-tex-ts-inner-delimiter)
-  (define-key evil-tex-ts-inner-text-objects-map "^" #'evil-tex-ts-inner-superscript)
-  (define-key evil-tex-ts-inner-text-objects-map "_" #'evil-tex-ts-inner-subscript)
-  (define-key evil-tex-ts-inner-text-objects-map "S" #'evil-tex-ts-inner-section)
-  ;; Outer text objects
-  (define-key evil-tex-ts-outer-text-objects-map "e" #'evil-tex-ts-outer-environment)
-  (define-key evil-tex-ts-outer-text-objects-map "c" #'evil-tex-ts-outer-command)
-  (define-key evil-tex-ts-outer-text-objects-map "m" #'evil-tex-ts-outer-math)
-  (define-key evil-tex-ts-outer-text-objects-map "d" #'evil-tex-ts-outer-delimiter)
-  (define-key evil-tex-ts-outer-text-objects-map "^" #'evil-tex-ts-outer-superscript)
-  (define-key evil-tex-ts-outer-text-objects-map "_" #'evil-tex-ts-outer-subscript)
-  (define-key evil-tex-ts-outer-text-objects-map "S" #'evil-tex-ts-outer-section))
-
-;; Shorten which-key descriptions
-(with-eval-after-load 'which-key
-  (push
-   '(("\\`." . "evil-tex-ts-.*---\\(.*\\)") . (nil . "\\1"))
-   which-key-replacement-alist))
 
 ;;; evil-surround integration
 
@@ -2185,11 +2179,10 @@ Uses `evil-define-minor-mode-key' for consistent priority handling."
     "[[" #'evil-tex-ts-go-back-section
     "]]" #'evil-tex-ts-go-forward-section))
 
-;; Setup text objects and toggle keybindings when package is loaded (after evil)
-(with-eval-after-load 'evil
-  (evil-tex-ts--setup-text-objects)
-  (evil-tex-ts--setup-toggle-keybindings)
-  (evil-tex-ts--setup-section-navigation))
+;; Setup text objects and toggle keybindings
+(evil-tex-ts--setup-text-objects)
+(evil-tex-ts--setup-toggle-keybindings)
+(evil-tex-ts--setup-section-navigation)
 
 ;;;###autoload
 (define-minor-mode evil-tex-ts-mode
@@ -2217,15 +2210,7 @@ Uses `evil-define-minor-mode-key' for consistent priority handling."
     (remove-hook 'post-command-hook #'evil-tex-ts--post-command-first-non-blank t)))
 
 ;; Add global advice for evil-delete (only runs in evil-tex-ts-mode buffers)
-(with-eval-after-load 'evil
-  (advice-add 'evil-delete :around #'evil-tex-ts--delete-advice))
-
-;; Setup evil-surround integration when it loads (for buffers where evil-tex-ts-mode is already active)
-(with-eval-after-load 'evil-surround
-  (dolist (buf (buffer-list))
-    (with-current-buffer buf
-      (when evil-tex-ts-mode
-        (evil-tex-ts-set-up-surround)))))
+(advice-add 'evil-delete :around #'evil-tex-ts--delete-advice)
 
 ;;;###autoload
 (defun evil-tex-ts-setup ()
