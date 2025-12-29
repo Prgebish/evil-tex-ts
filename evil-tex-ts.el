@@ -2118,16 +2118,18 @@ Bound to `mt' or `ts' prefix depending on configuration.")
 (defun evil-tex-ts--setup-toggle-keybindings ()
   "Setup toggle keybindings based on customization options.
 Call this after changing `evil-tex-ts-toggle-override-m' or
-`evil-tex-ts-toggle-override-t'."
-  (when (boundp 'evil-normal-state-local-map)
-    ;; Bind to mt* if enabled
-    (when evil-tex-ts-toggle-override-m
-      (evil-define-key 'normal evil-tex-ts-mode-map
-        "mt" evil-tex-ts-toggle-map))
-    ;; Bind to ts* if enabled
-    (when evil-tex-ts-toggle-override-t
-      (evil-define-key 'normal evil-tex-ts-mode-map
-        "ts" evil-tex-ts-toggle-map))))
+`evil-tex-ts-toggle-override-t'.
+
+Uses `evil-define-minor-mode-key' to ensure proper priority over
+global Evil keybindings like `evil-set-marker' bound to `m'."
+  ;; Bind to mt* if enabled (using evil-define-minor-mode-key for proper priority)
+  (when evil-tex-ts-toggle-override-m
+    (evil-define-minor-mode-key 'normal 'evil-tex-ts-mode
+      "mt" evil-tex-ts-toggle-map))
+  ;; Bind to ts* if enabled
+  (when evil-tex-ts-toggle-override-t
+    (evil-define-minor-mode-key 'normal 'evil-tex-ts-mode
+      "ts" evil-tex-ts-toggle-map)))
 
 ;;; Minor mode
 
@@ -2174,11 +2176,12 @@ These bindings are global but the functions check if evil-tex-ts-mode is active.
 
 (defun evil-tex-ts--setup-section-navigation ()
   "Setup section navigation keybindings.
-Binds [[ and ]] for section navigation in normal and visual states."
-  (evil-define-key 'normal evil-tex-ts-mode-map
+Binds [[ and ]] for section navigation in normal and visual states.
+Uses `evil-define-minor-mode-key' for consistent priority handling."
+  (evil-define-minor-mode-key 'normal 'evil-tex-ts-mode
     "[[" #'evil-tex-ts-go-back-section
     "]]" #'evil-tex-ts-go-forward-section)
-  (evil-define-key 'visual evil-tex-ts-mode-map
+  (evil-define-minor-mode-key 'visual 'evil-tex-ts-mode
     "[[" #'evil-tex-ts-go-back-section
     "]]" #'evil-tex-ts-go-forward-section))
 
